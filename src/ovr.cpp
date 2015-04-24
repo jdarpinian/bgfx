@@ -242,13 +242,14 @@ ovrError:
 			{
 				const ovrPosef& pose = m_pose[ii];
 				HMD::Eye& eye = _hmd.eye[ii];
-				eye.rotation[0] = pose.Orientation.x;
-				eye.rotation[1] = pose.Orientation.y;
+                // Swap handedness of the coordinate system here.
+				eye.rotation[0] = -pose.Orientation.x;
+				eye.rotation[1] = -pose.Orientation.y;
 				eye.rotation[2] = pose.Orientation.z;
 				eye.rotation[3] = pose.Orientation.w;
 				eye.translation[0] = pose.Position.x;
 				eye.translation[1] = pose.Position.y;
-				eye.translation[2] = pose.Position.z;
+				eye.translation[2] = -pose.Position.z;
 
 				const ovrEyeRenderDesc& erd = m_erd[ii];
 				eye.fov[0] = erd.Fov.UpTan;
@@ -258,7 +259,7 @@ ovrError:
 #if OVR_VERSION > OVR_VERSION_042
 				eye.viewOffset[0] = erd.HmdToEyeViewOffset.x;
 				eye.viewOffset[1] = erd.HmdToEyeViewOffset.y;
-				eye.viewOffset[2] = erd.HmdToEyeViewOffset.z;
+				eye.viewOffset[2] = -erd.HmdToEyeViewOffset.z;
 #else
 				eye.viewOffset[0] = erd.ViewAdjust.x;
 				eye.viewOffset[1] = erd.ViewAdjust.y;

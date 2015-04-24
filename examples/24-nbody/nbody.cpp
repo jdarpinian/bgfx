@@ -263,7 +263,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			{
 				float viewHead[16];
 				float eye[3] = {};
-				bx::mtxQuatTranslationHMD(viewHead, hmd->eye[0].rotation, eye);
+				bx::mtxQuatTranslation(viewHead, hmd->eye[0].rotation, eye);
 
 				float tmp[16];
 				bx::mtxMul(tmp, view, viewHead);

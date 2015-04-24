@@ -2121,7 +2121,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			float eye[3];
 			cameraGetPosition(eye);
 
-			bx::mtxQuatTranslationHMD(viewState.m_view, hmd->eye[0].rotation, eye);
+			bx::mtxQuatTranslation(viewState.m_view, hmd->eye[0].rotation, eye);
 			bx::mtxProj(viewState.m_proj, hmd->eye[0].fov, nearPlane, farPlane, s_oglNdc);
 
 			viewState.m_width  = hmd->width;

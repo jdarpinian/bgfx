@@ -551,7 +551,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 		if (NULL != hmd)
 		{
 			float view[16];
-			bx::mtxQuatTranslationHMD(view, hmd->eye[0].rotation, eye);
+			bx::mtxQuatTranslation(view, hmd->eye[0].rotation, eye);
 
 			float proj[16];
 			bx::mtxProj(proj, hmd->eye[0].fov, 0.1f, 100.0f);
