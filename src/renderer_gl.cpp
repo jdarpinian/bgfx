@@ -4671,7 +4671,6 @@ namespace bgfx { namespace gl
 					}
 
 					viewRestart = ( (BGFX_VIEW_STEREO == (_render->m_viewFlags[view] & BGFX_VIEW_STEREO) ) );
-					viewRestart &= hmdEnabled;
 					if (viewRestart)
 					{
 						if (0 == restartState)

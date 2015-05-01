@@ -3462,7 +3462,6 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 					}
 
 					viewRestart = ( (BGFX_VIEW_STEREO == (_render->m_viewFlags[view] & BGFX_VIEW_STEREO) ) );
-					viewRestart &= hmdEnabled;
 					if (viewRestart)
 					{
 						if (0 == restartState)
