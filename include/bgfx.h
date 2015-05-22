@@ -417,8 +417,9 @@ namespace bgfx
 		};
 
 		Eye eye[2];
-		uint16_t width;  //!< Framebuffer width.
-		uint16_t height; //!< Framebuffer width.
+		uint16_t width;           //!< Framebuffer width.
+		uint16_t height;          //!< Framebuffer width.
+		const char *serialNumber; //!< Serial number of the headset as a string.
 	};
 
 	/// Vertex declaration.

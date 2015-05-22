@@ -222,6 +222,7 @@ ovrError:
 #endif // OVR_VERSION > OVR_VERSION_042
 
 		getEyePose(_hmd);
+		_hmd.serialNumber = m_hmd->SerialNumber;
 
 		return true;
 	}
