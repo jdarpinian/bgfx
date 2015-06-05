@@ -230,6 +230,10 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 		WindowHandle handle = { UINT16_MAX };
 
 		bool mouseLock = inputIsMouseLocked();
+		if (NULL != _mouse && mouseLock)
+		{
+			memset(_mouse, 0, sizeof(*_mouse));
+		}
 
 		const Event* ev;
 		do
@@ -279,14 +283,22 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 							inputSetMouseButtonState(mouse->m_button, mouse->m_down);
 						}
 
-						if (NULL != _mouse
-						&&  !mouseLock)
+						if (NULL != _mouse)
 						{
 							if (mouse->m_move)
 							{
-								_mouse->m_mx = mouse->m_mx;
-								_mouse->m_my = mouse->m_my;
-								_mouse->m_mz = mouse->m_mz;
+								if (mouseLock)
+								{
+									_mouse->m_mx += mouse->m_mx;
+									_mouse->m_my += mouse->m_my;
+									_mouse->m_mz += mouse->m_mz;
+								}
+								else
+								{
+									_mouse->m_mx = mouse->m_mx;
+									_mouse->m_my = mouse->m_my;
+									_mouse->m_mz = mouse->m_mz;
+								}
 							}
 							else
 							{
