@@ -330,6 +330,7 @@ namespace entry
 			, m_mouseLock(NULL)
 			, m_init(false)
 			, m_exit(false)
+			, m_active(true)
 		{
 			memset(s_translateKey, 0, sizeof(s_translateKey) );
 			s_translateKey[VK_ESCAPE]    = Key::Esc;
@@ -662,6 +663,10 @@ namespace entry
 					}
 					break;
 
+				case WM_ACTIVATE:
+					m_active = _wparam != WA_INACTIVE;
+					break;
+
 				case WM_SYSCOMMAND:
 					switch (_wparam)
 					{
@@ -679,6 +684,10 @@ namespace entry
 
 				case WM_MOUSEMOVE:
 					{
+						if (!m_active)
+						{
+							break;
+						}
 						int32_t mx = GET_X_LPARAM(_lparam);
 						int32_t my = GET_Y_LPARAM(_lparam);
 
@@ -983,6 +992,7 @@ namespace entry
 		int32_t m_mz;
 
 		bool m_frame;
+		bool m_active;
 		HWND m_mouseLock;
 		bool m_init;
 		bool m_exit;
