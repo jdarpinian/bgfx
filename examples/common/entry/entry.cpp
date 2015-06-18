@@ -233,6 +233,10 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 		if (NULL != _mouse && mouseLock)
 		{
 			memset(_mouse, 0, sizeof(*_mouse));
+			for (int i = 0; i < entry::MouseButton::Count; i++)
+			{
+				inputGetMouseButtonState((entry::MouseButton::Enum) i, _mouse->m_buttons[i]);
+			}
 		}
 
 		const Event* ev;
