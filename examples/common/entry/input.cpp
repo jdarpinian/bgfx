@@ -100,6 +100,11 @@ struct Keyboard
 		m_once[_key] = false;
 	}
 
+	void getKeyState(entry::Key::Enum _key, uint8_t& _modifiers, bool& _down)
+	{
+		decodeKeyState(m_key[_key], _modifiers, _down);
+	}
+
 	void pushChar(uint8_t _len, const uint8_t _char[4])
 	{
 		for (uint32_t len = m_ring.reserve(4)
@@ -285,6 +290,11 @@ void inputSetMouseResolution(uint16_t _width, uint16_t _height)
 void inputSetKeyState(entry::Key::Enum _key, uint8_t _modifiers, bool _down)
 {
 	s_input->m_keyboard.setKeyState(_key, _modifiers, _down);
+}
+
+void inputGetKeyState(entry::Key::Enum _key, uint8_t& _modifiers, bool& _down)
+{
+	s_input->m_keyboard.getKeyState(_key, _modifiers, _down);
 }
 
 void inputChar(uint8_t _len, const uint8_t _char[4])
