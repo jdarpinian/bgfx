@@ -28,7 +28,7 @@ struct OcornutImguiContext
 		float ortho[16];
 		bx::mtxOrtho(ortho, 0.0f, width, height, 0.0f, -1.0f, 1.0f);
 
-		bgfx::setViewTransform(m_viewId, NULL, ortho);
+		bgfx::setViewTransform(m_viewId, NULL, ortho, 0);
 
 		// Render command lists
 		for (int32_t ii = 0; ii < _count; ++ii)

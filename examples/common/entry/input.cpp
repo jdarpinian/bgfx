@@ -57,6 +57,11 @@ struct Mouse
 		m_buttons[_button] = _state;
 	}
 
+	void getButtonState(entry::MouseButton::Enum _button, uint8_t& _state)
+	{
+		_state = m_buttons[_button];
+	}
+
 	int32_t m_absolute[3];
 	float m_norm[3];
 	int32_t m_wheel;
@@ -320,6 +325,11 @@ void inputSetMousePos(int32_t _mx, int32_t _my, int32_t _mz)
 void inputSetMouseButtonState(entry::MouseButton::Enum _button, uint8_t _state)
 {
 	s_input->m_mouse.setButtonState(_button, _state);
+}
+
+void inputGetMouseButtonState(entry::MouseButton::Enum _button, uint8_t& _state)
+{
+	s_input->m_mouse.getButtonState(_button, _state);
 }
 
 void inputGetMouse(float _mouse[3])
