@@ -61,6 +61,11 @@ struct OcornutImguiContext
 			uint32_t vtx_offset = 0;
 			for (const ImDrawCmd* pcmd = pcmd_begin; pcmd != pcmd_end; pcmd++)
 			{
+				if (pcmd->user_callback) {
+					IMGUI_setView((uint8_t)pcmd->user_callback_data);
+					continue;
+				}
+
 				bgfx::setState(0
 					| BGFX_STATE_RGB_WRITE
 					| BGFX_STATE_ALPHA_WRITE
@@ -235,4 +240,16 @@ void IMGUI_beginFrame(int32_t _mx, int32_t _my, uint8_t _button, int _width, int
 void IMGUI_endFrame()
 {
 	s_ctx.endFrame();
+}
+
+void IMGUI_setView(uint8_t view)
+{
+	s_ctx.m_viewId = view;
+	const float width = ImGui::GetIO().DisplaySize.x;
+	const float height = ImGui::GetIO().DisplaySize.y;
+	float ortho[16];
+	bx::mtxOrtho(ortho, 0.0f, width, height, 0.0f, -1.0f, 1.0f);
+
+	bgfx::setViewTransform(s_ctx.m_viewId, NULL, ortho, 0);
+
 }
