@@ -7,7 +7,7 @@
 #include "bgfx_utils.h"
 #include "imgui/imgui.h"
 #include "camera.h"
-#include <bgfx.h>
+#include <bgfx/bgfx.h>
 
 struct u_paramsDataStruct
 {
@@ -118,7 +118,8 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 		);
 
 	const bgfx::Caps* caps = bgfx::getCaps();
-	const bool computeSupported = !!(caps->supported & BGFX_CAPS_COMPUTE);
+	const bool computeSupported  = !!(caps->supported & BGFX_CAPS_COMPUTE);
+	const bool indirectSupported = !!(caps->supported & BGFX_CAPS_DRAW_INDIRECT);
 
 	if (computeSupported)
 	{
@@ -160,12 +161,19 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 		bgfx::DynamicVertexBufferHandle prevPositionBuffer0 = bgfx::createDynamicVertexBuffer(1 << 15, computeVertexDecl, BGFX_BUFFER_COMPUTE_READ_WRITE);
 		bgfx::DynamicVertexBufferHandle prevPositionBuffer1 = bgfx::createDynamicVertexBuffer(1 << 15, computeVertexDecl, BGFX_BUFFER_COMPUTE_READ_WRITE);
 
-		bgfx::UniformHandle u_params = bgfx::createUniform("u_params", bgfx::UniformType::Uniform4fv, 3);
+		bgfx::UniformHandle u_params = bgfx::createUniform("u_params", bgfx::UniformType::Vec4, 3);
 
-		bgfx::ShaderHandle  initInstancesShader    = loadShader("cs_init_instances");
-		bgfx::ProgramHandle initInstancesProgram   = bgfx::createProgram(initInstancesShader, true);
-		bgfx::ShaderHandle  updateInstancesShader  = loadShader("cs_update_instances");
-		bgfx::ProgramHandle updateInstancesProgram = bgfx::createProgram(updateInstancesShader, true);
+		bgfx::ProgramHandle initInstancesProgram   = bgfx::createProgram(loadShader("cs_init_instances"), true);
+		bgfx::ProgramHandle updateInstancesProgram = bgfx::createProgram(loadShader("cs_update_instances"), true);
+
+		bgfx::ProgramHandle indirectProgram       = BGFX_INVALID_HANDLE;
+		bgfx::IndirectBufferHandle indirectBuffer = BGFX_INVALID_HANDLE;
+
+		if (indirectSupported)
+		{
+			indirectProgram = bgfx::createProgram(loadShader("cs_indirect"), true);
+			indirectBuffer  = bgfx::createIndirectBuffer(2);
+		}
 
 		u_paramsDataStruct u_paramsData;
 		InitializeParams(0, &u_paramsData);
@@ -184,6 +192,8 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 
 		int32_t scrollArea = 0;
 
+		bool useIndirect = false;
+
 		entry::MouseState mouseState;
 		while (!entry::processEvents(width, height, debug, reset, &mouseState) )
 		{
@@ -193,6 +203,11 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			last = now;
 			const double freq = double(bx::getHPFrequency() );
 			const float deltaTime = float(frameTime/freq);
+
+			if (deltaTime > 1000.0)
+			{
+				abort();
+			}
 
 			// Set view 0 default viewport.
 			bgfx::setViewRect(0, 0, 0, width, height);
@@ -204,9 +219,10 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 
 			imguiBeginFrame(mouseState.m_mx
 					, mouseState.m_my
-					, (mouseState.m_buttons[entry::MouseButton::Left  ] ? IMGUI_MBUT_LEFT  : 0)
-					| (mouseState.m_buttons[entry::MouseButton::Right ] ? IMGUI_MBUT_RIGHT : 0)
-					, 0
+					, (mouseState.m_buttons[entry::MouseButton::Left  ] ? IMGUI_MBUT_LEFT   : 0)
+					| (mouseState.m_buttons[entry::MouseButton::Right ] ? IMGUI_MBUT_RIGHT  : 0)
+					| (mouseState.m_buttons[entry::MouseButton::Middle] ? IMGUI_MBUT_MIDDLE : 0)
+					, mouseState.m_mz
 					, width
 					, height
 					);
@@ -225,6 +241,11 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			imguiSlider("Particle intensity", u_paramsData.particleIntensity, 0.0f, 1.0f, 0.001f);
 			imguiSlider("Particle size", u_paramsData.particleSize, 0.0f, 1.0f, 0.001f);
 			imguiSlider("Particle power", u_paramsData.particlePower, 0.001f, 16.0f, 0.01f);
+			imguiSeparatorLine();
+			if (imguiCheck("Use draw/dispatch indirect", useIndirect, indirectSupported) )
+			{
+				useIndirect = !useIndirect;
+			}
 			imguiEndScrollArea();
 			imguiEndFrame();
 
@@ -243,12 +264,27 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 				bgfx::dispatch(0, initInstancesProgram, maxParticleCount / threadGroupUpdateSize, 1, 1);
 			}
 
+			if (useIndirect)
+			{
+				bgfx::setUniform(u_params, &u_paramsData, 3);
+				bgfx::setBuffer(0, indirectBuffer, bgfx::Access::Write);
+				bgfx::dispatch(0, indirectProgram);
+			}
+
 			bgfx::setBuffer(0, prevPositionBuffer0, bgfx::Access::Read);
 			bgfx::setBuffer(1, currPositionBuffer0, bgfx::Access::Read);
 			bgfx::setBuffer(2, prevPositionBuffer1, bgfx::Access::Write);
 			bgfx::setBuffer(3, currPositionBuffer1, bgfx::Access::Write);
 			bgfx::setUniform(u_params, &u_paramsData, 3);
-			bgfx::dispatch(0, updateInstancesProgram, u_paramsData.dispatchSize, 1, 1);
+
+			if (useIndirect)
+			{
+				bgfx::dispatch(0, updateInstancesProgram, indirectBuffer, 1);
+			}
+			else
+			{
+				bgfx::dispatch(0, updateInstancesProgram, u_paramsData.dispatchSize, 1, 1);
+			}
 
 			bx::xchg(currPositionBuffer0, currPositionBuffer1);
 			bx::xchg(prevPositionBuffer0, prevPositionBuffer1);
@@ -259,7 +295,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 
 			// Set view and projection matrix for view 0.
 			const bgfx::HMD* hmd = bgfx::getHMD();
-			if (NULL != hmd)
+			if (NULL != hmd && 0 != (hmd->flags & BGFX_HMD_RENDERING) )
 			{
 				float viewHead[16];
 				float eye[3] = {};
@@ -289,9 +325,6 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 				bgfx::setViewRect(0, 0, 0, width, height);
 			}
 
-			// Set vertex and fragment shaders.
-			bgfx::setProgram(particleProgram);
-
 			// Set vertex and index buffer.
 			bgfx::setVertexBuffer(vbh);
 			bgfx::setIndexBuffer(ibh);
@@ -305,7 +338,14 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 					);
 
 			// Submit primitive for rendering to view 0.
-			bgfx::submit(0);
+			if (useIndirect)
+			{
+				bgfx::submit(0, particleProgram, indirectBuffer, 0);
+			}
+			else
+			{
+				bgfx::submit(0, particleProgram);
+			}
 
 			// Advance to next frame. Rendering thread will be kicked to
 			// process submitted rendering primitives.
@@ -315,6 +355,14 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 		// Cleanup.
 		cameraDestroy();
 		imguiDestroy();
+
+		if (indirectSupported)
+		{
+			bgfx::destroyProgram(indirectProgram);
+			bgfx::destroyIndirectBuffer(indirectBuffer);
+		}
+
+
 		bgfx::destroyUniform(u_params);
 		bgfx::destroyDynamicVertexBuffer(currPositionBuffer0);
 		bgfx::destroyDynamicVertexBuffer(currPositionBuffer1);
@@ -345,7 +393,7 @@ int _main_(int /*_argc*/, char** /*_argv*/)
 			bool blink = uint32_t(time*3.0f)&1;
 			bgfx::dbgTextPrintf(0, 5, blink ? 0x1f : 0x01, " Compute is not supported by GPU. ");
 
-			bgfx::submit(0);
+			bgfx::touch(0);
 			bgfx::frame();
 		}
 	}

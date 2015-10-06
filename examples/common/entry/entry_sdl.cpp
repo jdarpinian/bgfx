@@ -13,7 +13,7 @@
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_syswm.h>
-#include <bgfxplatform.h>
+#include <bgfx/bgfxplatform.h>
 
 #include <stdio.h>
 #include <bx/thread.h>
@@ -320,7 +320,7 @@ namespace entry
 			initTranslateGamepadAxis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, GamepadAxis::RightZ);
 		}
 
-		void run(int _argc, char** _argv)
+		int run(int _argc, char** _argv)
 		{
 			m_mte.m_argc = _argc;
 			m_mte.m_argv = _argv;
@@ -451,20 +451,28 @@ namespace entry
 								uint8_t modifiers = translateKeyModifiers(kev.keysym.mod);
 								Key::Enum key = translateKey(kev.keysym.scancode);
 
-								const uint8_t shiftMask = Modifier::LeftShift|Modifier::RightShift;
-								const bool nonShiftModifiers = (0 != (modifiers&(~shiftMask) ) );
-								const bool isCharPressed = (Key::Key0 <= key && key <= Key::KeyZ) || (Key::Esc <= key && key <= Key::Minus);
-								const bool isText = isCharPressed && !nonShiftModifiers;
-
-								if (isText)
+								// TODO: These keys are not captured by SDL_TEXTINPUT. Should be probably handled by SDL_TEXTEDITING. This is a workaround for now.
+								if (key == 1) // Escape
 								{
 									uint8_t pressedChar[4];
-									pressedChar[0] = keyToAscii(key, modifiers);
+									pressedChar[0] = 0x1b;
+									m_eventQueue.postCharEvent(handle, 1, pressedChar);
+								}
+								else if (key == 2) // Enter
+								{
+									uint8_t pressedChar[4];
+									pressedChar[0] = 0x0d;
+									m_eventQueue.postCharEvent(handle, 1, pressedChar);
+								}
+								else if (key == 5) // Backspace
+								{
+									uint8_t pressedChar[4];
+									pressedChar[0] = 0x08;
 									m_eventQueue.postCharEvent(handle, 1, pressedChar);
 								}
 								else
 								{
-									m_eventQueue.postKeyEvent(handle, key, modifiers, kev.state == SDL_PRESSED);
+								    m_eventQueue.postKeyEvent(handle, key, modifiers, kev.state == SDL_PRESSED);
 								}
 							}
 						}
@@ -636,7 +644,7 @@ namespace entry
 									Msg* msg = (Msg*)uev.data2;
 									if (isValid(handle) )
 									{
-										SDL_SetWindowTitle(m_window[handle.idx], msg->m_title.c_str());
+										SDL_SetWindowTitle(m_window[handle.idx], msg->m_title.c_str() );
 									}
 									delete msg;
 								}
@@ -702,6 +710,8 @@ namespace entry
 
 			SDL_DestroyWindow(m_window[0]);
 			SDL_Quit();
+
+			return m_thread.getExitCode();
 		}
 
 		WindowHandle findHandle(uint32_t _windowId)
@@ -888,8 +898,7 @@ namespace entry
 int main(int _argc, char** _argv)
 {
 	using namespace entry;
-	s_ctx.run(_argc, _argv);
-	return 0;
+	return s_ctx.run(_argc, _argv);
 }
 
 #endif // ENTRY_CONFIG_USE_SDL

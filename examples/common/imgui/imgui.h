@@ -26,11 +26,13 @@
 #ifndef IMGUI_H_HEADER_GUARD
 #define IMGUI_H_HEADER_GUARD
 
-#include <bgfx.h>
+#include <bgfx/bgfx.h>
 #include <ocornut-imgui/imgui.h>
+#include <ocornut-imgui/imgui_wm.h>
 
-#define IMGUI_MBUT_LEFT  0x01
-#define IMGUI_MBUT_RIGHT 0x02
+#define IMGUI_MBUT_LEFT   0x01
+#define IMGUI_MBUT_RIGHT  0x02
+#define IMGUI_MBUT_MIDDLE 0x04
 
 /// For custom values, define these macros before including imgui.h
 
@@ -207,11 +209,19 @@ bool imguiMouseOverArea();
 namespace ImGui
 {
 	// Helper function for passing bgfx::TextureHandle to ImGui::Image.
-	inline void Image(bgfx::TextureHandle _handle, const ImVec2& _size, const ImVec2& _uv0 = ImVec2(0, 0), const ImVec2& _uv1 = ImVec2(1, 1), const ImVec4& _tint_col = ImVec4(1, 1, 1, 1), const ImVec4& _border_col = ImVec4(0, 0, 0, 0))
+	inline void Image(bgfx::TextureHandle _handle, const ImVec2& _size, const ImVec2& _uv0 = ImVec2(0, 0), const ImVec2& _uv1 = ImVec2(1, 1), const ImVec4& _tint_col = ImVec4(1, 1, 1, 1), const ImVec4& _border_col = ImVec4(0, 0, 0, 0) )
 	{
 		union { bgfx::TextureHandle handle; ImTextureID ptr; } texture;
 		texture.handle = _handle;
 		Image(texture.ptr, _size, _uv0, _uv1, _tint_col, _border_col);
+	}
+
+	// Helper function for passing bgfx::TextureHandle to ImGui::ImageButton.
+	inline bool ImageButton(bgfx::TextureHandle _handle, const ImVec2& _size, const ImVec2& _uv0 = ImVec2(0,0),  const ImVec2& _uv1 = ImVec2(1,1), int _frame_padding = -1, const ImVec4& _bg_col = ImVec4(0,0,0,0), const ImVec4& _tint_col = ImVec4(1,1,1,1))
+	{
+		union { bgfx::TextureHandle handle; ImTextureID ptr; } texture;
+		texture.handle = _handle;
+		return ImageButton(texture.ptr, _size, _uv0, _uv1, _frame_padding, _bg_col, _tint_col);
 	}
 
 } // namespace ImGui

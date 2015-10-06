@@ -188,7 +188,7 @@ namespace bgfx { namespace gl
 				{
 					result = wglChoosePixelFormatARB(m_hdc, attrs, NULL, 1, &m_pixelFormat, &numFormats);
 					if (0 == result
-						||  0 == numFormats)
+					||  0 == numFormats)
 					{
 						attrs[3] >>= 1;
 						attrs[1] = attrs[3] == 0 ? 0 : 1;
@@ -212,7 +212,7 @@ namespace bgfx { namespace gl
 					);
 
 				result = SetPixelFormat(m_hdc, m_pixelFormat, &m_pfd);
-				// When window is created by SDL and SDL_WINDOW_OPENGL is set SetPixelFormat
+				// When window is created by SDL and SDL_WINDOW_OPENGL is set, SetPixelFormat
 				// will fail. Just warn and continue. In case it failed for some other reason
 				// create context will fail and it will error out there.
 				BX_WARN(result, "SetPixelFormat failed (last err: 0x%08x)!", GetLastError() );
@@ -296,9 +296,9 @@ namespace bgfx { namespace gl
 		}
 	}
 
-	bool GlContext::isSwapChainSupported()
+	uint64_t GlContext::getCaps() const
 	{
-		return true;
+		return BGFX_CAPS_SWAP_CHAIN;
 	}
 
 	SwapChainGL* GlContext::createSwapChain(void* _nwh)
