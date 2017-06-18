@@ -33,6 +33,10 @@
 #	include "hmd_ovr.h"
 #endif // BGFX_CONFIG_USE_OVR
 
+#if BGFX_CONFIG_USE_OPENVR
+#	include "hmd_openvr.h"
+#endif // BGFX_CONFIG_USE_OPENVR
+
 namespace bgfx { namespace d3d11
 {
 	static wchar_t s_viewNameW[BGFX_CONFIG_MAX_VIEWS][BGFX_CONFIG_MAX_VIEW_NAME];
@@ -672,6 +676,26 @@ namespace bgfx { namespace d3d11
 	};
 #endif // BGFX_CONFIG_USE_OVR
 
+#if BGFX_CONFIG_USE_OPENVR
+	class VRImplOpenVRD3D11 : public VRImplOpenVR
+	{
+	public:
+		VRImplOpenVRD3D11();
+
+		virtual bool createSwapChain(const VRDesc& _desc, int _msaaSamples, int _mirrorWidth, int _mirrorHeight) BX_OVERRIDE;
+		virtual void destroySwapChain() BX_OVERRIDE;
+		virtual void destroyMirror() BX_OVERRIDE;
+		virtual void makeRenderTargetActive(const VRDesc& _desc) BX_OVERRIDE;
+		virtual bool submitSwapChain(const VRDesc& _desc) BX_OVERRIDE;
+
+	private:
+		ID3D11DepthStencilView* m_depthBuffer;
+		ID3D11RenderTargetView* m_rtv;
+		ID3D11Texture2D* m_cbTexture;
+		ID3D11Texture2D* m_dbTexture;
+	};
+#endif // BGFX_CONFIG_USE_OPENVR
+
 	struct RendererContextD3D11 : public RendererContextI
 	{
 		RendererContextD3D11()
@@ -737,6 +761,9 @@ namespace bgfx { namespace d3d11
 #if BGFX_CONFIG_USE_OVR
 			vrImpl = &m_ovrRender;
 #endif // BGFX_CONFIG_USE_OVR
+#if BGFX_CONFIG_USE_OPENVR
+			vrImpl = &m_openvrRender;
+#endif // BGFX_CONFIG_USE_OPENVR
 			m_ovr.init(vrImpl);
 
 			if (!m_ovr.isInitialized() )
@@ -3314,20 +3341,20 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 
 		void ovrPostReset()
 		{
-#if BGFX_CONFIG_USE_OVR
+#if BGFX_CONFIG_USE_OVR || BGFX_CONFIG_USE_OPENVR
 			if (m_resolution.m_flags & (BGFX_RESET_HMD|BGFX_RESET_HMD_DEBUG) )
 			{
 				const uint32_t msaaSamples = 1 << ((m_resolution.m_flags&BGFX_RESET_MSAA_MASK) >> BGFX_RESET_MSAA_SHIFT);
 				m_ovr.postReset(msaaSamples, m_resolution.m_width, m_resolution.m_height);
 			}
-#endif // BGFX_CONFIG_USE_OVR
+#endif // BGFX_CONFIG_USE_OVR || BGFX_CONFIG_USE_OPENVR
 		}
 
 		void ovrPreReset()
 		{
-#if BGFX_CONFIG_USE_OVR
+#if BGFX_CONFIG_USE_OVR || BGFX_CONFIG_USE_OPENVR
 			m_ovr.preReset();
-#endif // BGFX_CONFIG_USE_OVR
+#endif // BGFX_CONFIG_USE_OVR || BGFX_CONFIG_USE_OPENVR
 		}
 
 		void capturePostReset()
@@ -3723,6 +3750,9 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 #if BGFX_CONFIG_USE_OVR
 		VRImplOVRD3D11 m_ovrRender;
 #endif // BGFX_CONFIG_USE_OVR
+#if BGFX_CONFIG_USE_OPENVR
+		VRImplOpenVRD3D11 m_openvrRender;
+#endif // BGFX_CONFIG_USE_OPENVR
 	};
 
 	static RendererContextD3D11* s_renderD3D11;
@@ -3998,6 +4028,128 @@ BX_PRAGMA_DIAGNOSTIC_POP();
 	}
 
 #endif // BGFX_CONFIG_USE_OVR
+
+#if BGFX_CONFIG_USE_OPENVR
+
+	VRImplOpenVRD3D11::VRImplOpenVRD3D11()
+		: m_depthBuffer(NULL)
+		, m_rtv(NULL)
+		, m_cbTexture(NULL)
+		, m_dbTexture(NULL)
+	{
+		//bx::memSet(m_eyeRtv, 0, sizeof(m_eyeRtv));
+	}
+
+	bool VRImplOpenVRD3D11::createSwapChain(const VRDesc& _desc, int _msaaSamples, int _mirrorWidth, int _mirrorHeight)
+	{
+		if (!m_system)
+		{
+			return false;
+		}
+
+		ID3D11Device* device = s_renderD3D11->m_device;
+		
+		const int32_t width = _desc.m_eyeSize[0].m_w + _desc.m_eyeSize[1].m_w;
+		const int32_t height = bx::uint16_max(_desc.m_eyeSize[0].m_h, _desc.m_eyeSize[1].m_h);
+
+		if (NULL == m_cbTexture)
+		{
+			// create target
+			D3D11_TEXTURE2D_DESC cbDesc = {};
+			cbDesc.Width = width;
+			cbDesc.Height = height;
+			cbDesc.MipLevels = 1;
+			cbDesc.ArraySize = 1;
+			cbDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			cbDesc.SampleDesc.Count = _msaaSamples;
+			cbDesc.SampleDesc.Quality = 0;
+			cbDesc.Usage = D3D11_USAGE_DEFAULT;
+			cbDesc.CPUAccessFlags = 0;
+			cbDesc.MiscFlags = 0;
+			cbDesc.BindFlags = D3D11_BIND_RENDER_TARGET;
+			DX_CHECK(device->CreateTexture2D(&cbDesc, NULL, &m_cbTexture) );
+			DX_CHECK(device->CreateRenderTargetView(m_cbTexture, NULL, &m_rtv) );
+		}
+
+		if (NULL == m_dbTexture)
+		{
+			// create depth buffer
+			D3D11_TEXTURE2D_DESC dbDesc = {};
+			dbDesc.Width = width;
+			dbDesc.Height = height;
+			dbDesc.MipLevels = 1;
+			dbDesc.ArraySize = 1;
+			dbDesc.Format = DXGI_FORMAT_D32_FLOAT;
+			dbDesc.SampleDesc.Count = _msaaSamples;
+			dbDesc.SampleDesc.Quality = 0;
+			dbDesc.Usage = D3D11_USAGE_DEFAULT;
+			dbDesc.CPUAccessFlags = 0;
+			dbDesc.MiscFlags = 0;
+			dbDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+			DX_CHECK(device->CreateTexture2D(&dbDesc, NULL, &m_dbTexture) );
+			DX_CHECK(device->CreateDepthStencilView(m_dbTexture, NULL, &m_depthBuffer) );
+		}
+
+		return true;
+	}
+
+	void VRImplOpenVRD3D11::destroySwapChain()
+	{
+		DX_RELEASE(m_depthBuffer, 0);
+		DX_RELEASE(m_rtv, 0);
+		DX_RELEASE(m_dbTexture, 0);
+		DX_RELEASE(m_cbTexture, 0);
+	}
+
+	void VRImplOpenVRD3D11::destroyMirror()
+	{
+	}
+
+	void VRImplOpenVRD3D11::makeRenderTargetActive(const VRDesc& /*_desc*/)
+	{
+		s_renderD3D11->m_currentColor = m_rtv;
+		s_renderD3D11->m_currentDepthStencil = m_depthBuffer;
+	}
+
+	bool VRImplOpenVRD3D11::submitSwapChain(const VRDesc& _desc)
+	{
+		//enum vr::EVRCompositorError compError = vr::VRCompositorError_None;
+		BX_CHECK(NULL != m_system, "No system in VRImplOpenVRD3D11::submitSwapChain. Usage error");
+		BX_CHECK(NULL != m_cbTexture, "VRImplOpenVRD3D11 submitted without a valid swap chain");
+
+		vr::Texture_t texdesc = {(void*)(uintptr_t)m_cbTexture, vr::TextureType_DirectX, vr::ColorSpace_Gamma };
+		{
+			const vr::VRTextureBounds_t bounds = { 0.f, 0.f, .5f, 1.f };
+			vr::EVRCompositorError error(m_compositor->Submit(vr::Eye_Left, &texdesc, &bounds));
+			BX_CHECK(vr:VRCompositorError_None == error, "OpenVR left eye submission failed!");
+		}
+		{
+			const vr::VRTextureBounds_t bounds = { .5f, 0.f, 1.f, 1.f };
+			vr::EVRCompositorError error(m_compositor->Submit(vr::Eye_Right, &texdesc, &bounds));
+			BX_CHECK(vr:VRCompositorError_None == error, "OpenVR right eye submission failed!");
+		}
+
+		/*
+		if (compError == vr:VRCompositorError_None)
+		{
+			IDXGISwapChain* swapChain = s_renderD3D11->m_swapChain;
+
+			ID3D11Texture2D* backBuffer;
+			DX_CHECK(swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer)));
+
+			deviceCtx->CopyResource(backBuffer, m_cbTexture);
+			DX_CHECK(swapChain->Present(0, 0));
+
+			DX_RELEASE(backBuffer, 0);
+		}
+		*/
+
+		m_compositor->PostPresentHandoff();
+
+		return true;
+	}
+
+#endif // BGFX_CONFIG_USE_OPENVR
 
 	struct UavFormat
 	{

@@ -30,8 +30,8 @@ namespace bgfx
 			return NULL != m_compositor;
 		}
 
-		virtual bool updateTracking(HMD& hmd) BX_OVERRIDE;
-		virtual void updateInput(HMD& hmd) BX_OVERRIDE;
+		virtual bool updateTracking(HMD& _hmd) BX_OVERRIDE;
+		virtual void updateInput(HMD& _hmd) BX_OVERRIDE;
 		virtual void recenter() BX_OVERRIDE;
 
 		virtual bool createSwapChain(const VRDesc& _desc, int _msaaSamples, int _mirrorWidth, int _mirrorHeight) BX_OVERRIDE = 0;
@@ -46,8 +46,8 @@ namespace bgfx
 			float offset[3];
 		};
 
-		vr::IVRCompositor* m_compositor = nullptr;
-		vr::IVRSystem* m_system = nullptr;
+		vr::IVRCompositor* m_compositor;
+		vr::IVRSystem* m_system;
 		EyeOffset m_eyeOffsets[2];
 		vr::TrackedDeviceIndex_t m_leftControllerId = vr::k_unTrackedDeviceIndexInvalid;
 		vr::TrackedDeviceIndex_t m_rightControllerId = vr::k_unTrackedDeviceIndexInvalid;
