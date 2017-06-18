@@ -52,7 +52,8 @@ namespace bgfx
 		void* context;      //!< GL context, or D3D device.
 		void* backBuffer;   //!< GL backbuffer, or D3D render target view.
 		void* backBufferDS; //!< Backbuffer depth/stencil.
-		void* session;      //!< ovrSession, for Oculus SDK
+		void* session;      //!< ovrSession for Oculus SDK or IVRSystem for OpenVR SDK
+		void* compositor;   //!< IVRCompositor for OpenVR SDK
 	};
 
 	/// Set platform data.
@@ -71,6 +72,8 @@ namespace bgfx
 	{
 		const struct Caps* caps; //!< Renderer capabilities.
 		void* context;           //!< GL context, or D3D device.
+		void* session;           //!< ovrSession for Oculus SDK or IVRSystem for OpenVR SDK
+		void* compositor;        //!< IVRCompositor for OpenVR SDK
 	};
 
 	/// Get internal data for interop.

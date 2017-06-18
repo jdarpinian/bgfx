@@ -41,6 +41,7 @@ typedef struct bgfx_platform_data
     void* backBuffer;
     void* backBufferDS;
     void* session;
+    void* compositor;
 
 } bgfx_platform_data_t;
 
@@ -51,6 +52,8 @@ typedef struct bgfx_internal_data
 {
     const struct bgfx_caps* caps;
     void* context;
+    void* session;
+    void* compositor;
 
 } bgfx_internal_data_t;
 

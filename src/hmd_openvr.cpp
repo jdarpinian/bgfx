@@ -9,10 +9,6 @@
 
 #include <memory>
 
-#	if BGFX_CONFIG_RENDERER_DIRECT3D11
-#		include "renderer_d3d11.h"
-#	endif // BGFX_CONFIG_RENDERER_DIRECT3D11
-
 namespace bgfx
 {
 	static void openvrTransformToQuat(float* quat, const float mat34[3][4])
@@ -54,11 +50,18 @@ namespace bgfx
 	}
 
 	VRImplOpenVR::VRImplOpenVR()
+		: m_system(NULL), m_compositor(NULL)
 	{
 	}
 
 	VRImplOpenVR::~VRImplOpenVR()
 	{
+		if (NULL != g_platformData.session)
+		{
+			return;
+		}
+
+		BX_CHECK(NULL == m_system, "OpenVR not shutdown properly.");
 	}
 
 	bool VRImplOpenVR::init()
@@ -68,101 +71,59 @@ namespace bgfx
 
 	void VRImplOpenVR::shutdown()
 	{
+		if (NULL != g_platformData.session)
+		{
+			return;
+		}
+
+		vr::VR_Shutdown();
+		m_system = NULL;
+		m_compositor = NULL;
+		g_internalData.session = NULL;
+		g_internalData.compositor = NULL;
 	}
 
 	void VRImplOpenVR::connect(VRDesc* desc)
 	{
 		vr::EVRInitError err;
-		m_system = vr::VR_Init(&err, vr::VRApplication_Scene);
-		if (err != vr::VRInitError_None)
-		{
-			vr::VR_Shutdown();
-			BX_TRACE("Failed to initialize OpenVR: %d", err);
-			return;
-		}
 
-		// locate the adapter LUID
-		int32_t adapterIndex;
-		m_system->GetDXGIOutputInfo(&adapterIndex);
-		if (adapterIndex == -1)
+		if (NULL == g_platformData.session)
 		{
-			vr::VR_Shutdown();
-			m_system = nullptr;
-			BX_TRACE("Failed to query the adapter index for OpenVR");
-			return;
+			m_system = vr::VR_Init(&err, vr::VRApplication_Scene);
+			if (err != vr::VRInitError_None)
+			{
+				shutdown();
+				BX_TRACE("Failed to initialize OpenVR: %d", err);
+				return;
+			}
+			g_internalData.session = (vr::IVRSystem*)m_system;
 		}
-
-		struct FreeLib
+		else
 		{
-			void operator()(void* m) { if (m) bx::dlclose(m); }
-		};
-		std::unique_ptr<void, FreeLib> dxgiLib(bx::dlopen("dxgi.dll"));
-		if (!dxgiLib)
-		{
-			vr::VR_Shutdown();
-			m_system = nullptr;
-			BX_TRACE("Failed to open dxgi.dll");
-			return;
-		}
-
-		typedef HRESULT(WINAPI *CreateDXGIFactory1Fn)(REFIID riid, _Out_ void **ppFactory);
-		CreateDXGIFactory1Fn CreateDXGIFactory1 = static_cast<CreateDXGIFactory1Fn>(bx::dlsym(dxgiLib.get(), "CreateDXGIFactory1"));
-		if (!CreateDXGIFactory1)
-		{
-			vr::VR_Shutdown();
-			m_system = nullptr;
-			BX_TRACE("Failed to locate CreateDXGIFactory1 function in dxgi.dll");
-			return;
-		}
-
-		IDXGIFactory* factory;
-		HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(&factory));
-		if (FAILED(hr))
-		{
-			vr::VR_Shutdown();
-			m_system = nullptr;
-			BX_TRACE("Failed to create DXGI factory: %08X", hr);
-			return;
-		}
-
-		IDXGIAdapter* adapter;
-		hr = factory->EnumAdapters(adapterIndex, &adapter);
-		factory->Release();
-		if (FAILED(hr))
-		{
-			vr::VR_Shutdown();
-			m_system = nullptr;
-			BX_TRACE("Failed to enumerate DXGI adapter: %08X", hr);
-			return;
-		}
-
-		DXGI_ADAPTER_DESC adapterDesc;
-		hr = adapter->GetDesc(&adapterDesc);
-		adapter->Release();
-		if (FAILED(hr))
-		{
-			vr::VR_Shutdown();
-			m_system = nullptr;
-			BX_TRACE("Failed to query DXGI adapter descrption: %08X", hr);
-			return;
+			m_system = (vr::IVRSystem*)g_platformData.session;
 		}
 
 		// get the compositor
-		m_compositor = static_cast<vr::IVRCompositor*>(vr::VR_GetGenericInterface(vr::IVRCompositor_Version, &err));
-		if (!m_compositor)
+		if (NULL == g_platformData.compositor)
 		{
-			vr::VR_Shutdown();
-			m_system = nullptr;
-			BX_TRACE("Failed to obtain compositor interface: %d", err);
-			return;
+			m_compositor = static_cast<vr::IVRCompositor*>(vr::VR_GetGenericInterface(vr::IVRCompositor_Version, &err));
+			if (!m_compositor)
+			{
+				shutdown();
+				BX_TRACE("Failed to obtain compositor interface: %d", err);
+				return;
+			}
+			g_internalData.compositor = (vr::IVRCompositor*)m_compositor;
+		}
+		else
+		{
+			m_compositor = (vr::IVRCompositor*)g_platformData.compositor;
 		}
 
 		vr::IVRExtendedDisplay* extdisp = static_cast<vr::IVRExtendedDisplay*>(vr::VR_GetGenericInterface(vr::IVRExtendedDisplay_Version, &err));
 		if (!extdisp)
 		{
-			vr::VR_Shutdown();
-			m_system = nullptr;
-			m_compositor = nullptr;
+			shutdown();
 			BX_TRACE("Failed to obtain extended display interface: %d", err);
 			return;
 		}
@@ -199,14 +160,17 @@ namespace bgfx
 
 	void VRImplOpenVR::disconnect()
 	{
-		vr::VR_Shutdown();
-		m_system = nullptr;
-		m_compositor = nullptr;
+		shutdown();
 		m_leftControllerId = m_rightControllerId = vr::k_unTrackedDeviceIndexInvalid;
 	}
 
-	bool VRImplOpenVR::updateTracking(HMD& hmd)
+	bool VRImplOpenVR::updateTracking(HMD& _hmd)
 	{
+		if (NULL == m_compositor)
+		{
+			return false;
+		}
+
 		vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount];
 		auto err = m_compositor->WaitGetPoses(poses, vr::k_unMaxTrackedDeviceCount, nullptr, 0);
 		if (err != vr::VRCompositorError_None)
@@ -220,20 +184,22 @@ namespace bgfx
 			if (headPose.eTrackingResult == vr::TrackingResult_Running_OK)
 			{
 				// convert to position/quat
-				hmd.eye[0].translation.position[0] = headPose.mDeviceToAbsoluteTracking.m[0][3];
-				hmd.headTracking.position[1] = headPose.mDeviceToAbsoluteTracking.m[1][3];
-				hmd.headTracking.position[2] = headPose.mDeviceToAbsoluteTracking.m[2][3];
-				openvrTransformToQuat(hmd.headTracking.rotation, headPose.mDeviceToAbsoluteTracking.m);
+				float head_position[3];
+				float head_rotation[4];
+				head_position[0] = headPose.mDeviceToAbsoluteTracking.m[0][3];
+				head_position[1] = headPose.mDeviceToAbsoluteTracking.m[1][3];
+				head_position[2] = headPose.mDeviceToAbsoluteTracking.m[2][3];
+				openvrTransformToQuat(head_rotation, headPose.mDeviceToAbsoluteTracking.m);
 
 				// calculate eye translations in tracked space
 				for (int eye = 0; eye != 2; ++eye)
 				{
-					const float uvx = 2.0f * (hmd.headTracking.rotation[1] * m_eyeOffsets[eye].offset[2] - hmd.headTracking.rotation[2] * m_eyeOffsets[eye].offset[1]);
-					const float uvy = 2.0f * (hmd.headTracking.rotation[2] * m_eyeOffsets[eye].offset[0] - hmd.headTracking.rotation[0] * m_eyeOffsets[eye].offset[2]);
-					const float uvz = 2.0f * (hmd.headTracking.rotation[0] * m_eyeOffsets[eye].offset[1] - hmd.headTracking.rotation[1] * m_eyeOffsets[eye].offset[0]);
-					hmd.eye[eye].translation[0] = m_eyeOffsets[eye].offset[0] + hmd.headTracking.rotation[3] * uvx + hmd.headTracking.rotation[1] * uvz - hmd.headTracking.rotation[2] * uvy + hmd.headTracking.position[0];
-					hmd.eye[eye].translation[1] = m_eyeOffsets[eye].offset[1] + hmd.headTracking.rotation[3] * uvy + hmd.headTracking.rotation[2] * uvx - hmd.headTracking.rotation[0] * uvz + hmd.headTracking.position[1];
-					hmd.eye[eye].translation[2] = m_eyeOffsets[eye].offset[2] + hmd.headTracking.rotation[3] * uvz + hmd.headTracking.rotation[0] * uvy - hmd.headTracking.rotation[1] * uvx + hmd.headTracking.position[2];
+					const float uvx = 2.0f * (head_rotation[1] * m_eyeOffsets[eye].offset[2] - head_rotation[2] * m_eyeOffsets[eye].offset[1]);
+					const float uvy = 2.0f * (head_rotation[2] * m_eyeOffsets[eye].offset[0] - head_rotation[0] * m_eyeOffsets[eye].offset[2]);
+					const float uvz = 2.0f * (head_rotation[0] * m_eyeOffsets[eye].offset[1] - head_rotation[1] * m_eyeOffsets[eye].offset[0]);
+					_hmd.eye[eye].translation[0] = m_eyeOffsets[eye].offset[0] + head_rotation[3] * uvx + head_rotation[1] * uvz - head_rotation[2] * uvy + head_position[0];
+					_hmd.eye[eye].translation[1] = m_eyeOffsets[eye].offset[1] + head_rotation[3] * uvy + head_rotation[2] * uvx - head_rotation[0] * uvz + head_position[1];
+					_hmd.eye[eye].translation[2] = m_eyeOffsets[eye].offset[2] + head_rotation[3] * uvz + head_rotation[0] * uvy - head_rotation[1] * uvx + head_position[2];
 				}
 			}
 		}
@@ -243,7 +209,10 @@ namespace bgfx
 
 	void VRImplOpenVR::recenter()
 	{
-		m_system->ResetSeatedZeroPose();
+		if (NULL != m_system)
+		{
+			m_system->ResetSeatedZeroPose();
+		}
 	}
 }
 
