@@ -1,10 +1,26 @@
 # increase to 3.1 once all major distributions
 # include a version of CMake >= 3.1
 cmake_minimum_required(VERSION 2.8.12)
+if (POLICY CMP0048)
+  cmake_policy(SET CMP0048 NEW)
+endif()
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 # Adhere to GNU filesystem layout conventions
 include(GNUInstallDirs)
+
+option(BUILD_SHARED_LIBS "Build Shared Libraries" OFF)
+
+set(LIB_TYPE STATIC)
+
+if(BUILD_SHARED_LIBS)
+    set(LIB_TYPE SHARED)
+endif()
+
+option(SKIP_GLSLANG_INSTALL "Skip installation" ${SKIP_GLSLANG_INSTALL})
+if(NOT ${SKIP_GLSLANG_INSTALL})
+  set(ENABLE_GLSLANG_INSTALL ON)
+endif()
 
 option(ENABLE_AMD_EXTENSIONS "Enables support of AMD-specific extensions" ON)
 option(ENABLE_GLSLANG_BINARIES "Builds glslangValidator and spirv-remap" ON)
@@ -12,6 +28,8 @@ option(ENABLE_GLSLANG_BINARIES "Builds glslangValidator and spirv-remap" ON)
 option(ENABLE_NV_EXTENSIONS "Enables support of Nvidia-specific extensions" ON)
 
 option(ENABLE_HLSL "Enables HLSL input support" ON)
+
+option(ENABLE_OPT "Enables spirv-opt capability if present" ON)
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT AND WIN32)
     set(CMAKE_INSTALL_PREFIX "install" CACHE STRING "..." FORCE)
@@ -47,7 +65,7 @@ endif(WIN32)
 
 if(${CMAKE_CXX_COMPILER_ID} MATCHES "GNU")
     add_compile_options(-Wall -Wmaybe-uninitialized -Wuninitialized -Wunused -Wunused-local-typedefs
-                        -Wunused-parameter -Wunused-value  -Wunused-variable -Wunused-but-set-parameter -Wunused-but-set-variable)
+                        -Wunused-parameter -Wunused-value  -Wunused-variable -Wunused-but-set-parameter -Wunused-but-set-variable -fno-exceptions)
     add_compile_options(-Wno-reorder)  # disable this from -Wall, since it happens all over.
 elseif(${CMAKE_CXX_COMPILER_ID} MATCHES "Clang")
     add_compile_options(-Wall -Wuninitialized -Wunused -Wunused-local-typedefs
@@ -77,6 +95,20 @@ endfunction(glslang_set_link_args)
 
 # We depend on these for later projects, so they should come first.
 add_subdirectory(External)
+
+if(NOT TARGET SPIRV-Tools-opt)
+    set(ENABLE_OPT OFF)
+endif()
+
+if(ENABLE_OPT)
+    message(STATUS "optimizer enabled")
+    add_definitions(-DENABLE_OPT=1)
+else()
+    if(ENABLE_HLSL)
+        message(STATUS "spirv-tools not linked - illegal SPIRV may be generated for HLSL")
+    endif()
+    add_definitions(-DENABLE_OPT=0)
+endif()
 
 add_subdirectory(glslang)
 add_subdirectory(OGLCompilersDLL)

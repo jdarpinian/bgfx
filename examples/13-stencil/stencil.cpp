@@ -8,10 +8,18 @@
 
 #include "common.h"
 #include "bgfx_utils.h"
+#include <bx/file.h>
 
-#include <bx/crtimpl.h>
 #include "camera.h"
 #include "imgui/imgui.h"
+
+namespace bgfx
+{
+	int32_t read(bx::ReaderI* _reader, bgfx::VertexDecl& _decl, bx::Error* _err = NULL);
+}
+
+namespace
+{
 
 #define RENDER_VIEWID_RANGE1_PASS_0  1
 #define RENDER_VIEWID_RANGE1_PASS_1  2
@@ -309,13 +317,13 @@ struct Uniforms
 
 	void destroy()
 	{
-		bgfx::destroyUniform(u_params);
-		bgfx::destroyUniform(u_ambient);
-		bgfx::destroyUniform(u_diffuse);
-		bgfx::destroyUniform(u_specular_shininess);
-		bgfx::destroyUniform(u_color);
-		bgfx::destroyUniform(u_lightPosRadius);
-		bgfx::destroyUniform(u_lightRgbInnerR);
+		bgfx::destroy(u_params);
+		bgfx::destroy(u_ambient);
+		bgfx::destroy(u_diffuse);
+		bgfx::destroy(u_specular_shininess);
+		bgfx::destroy(u_color);
+		bgfx::destroy(u_lightPosRadius);
+		bgfx::destroy(u_lightRgbInnerR);
 	}
 
 	struct Params
@@ -393,8 +401,8 @@ struct RenderState
 static RenderState s_renderStates[RenderState::Count] =
 {
 	{ // StencilReflection_CraftStencil
-		BGFX_STATE_RGB_WRITE
-		| BGFX_STATE_DEPTH_WRITE
+		BGFX_STATE_WRITE_RGB
+		| BGFX_STATE_WRITE_Z
 		| BGFX_STATE_DEPTH_TEST_LESS
 		| BGFX_STATE_MSAA
 		, UINT32_MAX
@@ -407,10 +415,10 @@ static RenderState s_renderStates[RenderState::Count] =
 		, BGFX_STENCIL_NONE
 	},
 	{ // StencilReflection_DrawReflected
-		BGFX_STATE_RGB_WRITE
-		| BGFX_STATE_ALPHA_WRITE
+		BGFX_STATE_WRITE_RGB
+		| BGFX_STATE_WRITE_A
 		| BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA)
-		| BGFX_STATE_DEPTH_WRITE
+		| BGFX_STATE_WRITE_Z
 		| BGFX_STATE_DEPTH_TEST_LESS
 		| BGFX_STATE_CULL_CW    //reflection matrix has inverted normals. using CCW instead of CW.
 		| BGFX_STATE_MSAA
@@ -424,8 +432,8 @@ static RenderState s_renderStates[RenderState::Count] =
 		, BGFX_STENCIL_NONE
 	},
 	{ // StencilReflection_BlendPlane
-		BGFX_STATE_RGB_WRITE
-		| BGFX_STATE_DEPTH_WRITE
+		BGFX_STATE_WRITE_RGB
+		| BGFX_STATE_WRITE_Z
 		| BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_SRC_COLOR)
 		| BGFX_STATE_DEPTH_TEST_LESS
 		| BGFX_STATE_CULL_CCW
@@ -435,8 +443,8 @@ static RenderState s_renderStates[RenderState::Count] =
 		, BGFX_STENCIL_NONE
 	},
 	{ // StencilReflection_DrawScene
-		BGFX_STATE_RGB_WRITE
-		| BGFX_STATE_DEPTH_WRITE
+		BGFX_STATE_WRITE_RGB
+		| BGFX_STATE_WRITE_Z
 		| BGFX_STATE_DEPTH_TEST_LESS
 		| BGFX_STATE_CULL_CCW
 		| BGFX_STATE_MSAA
@@ -445,8 +453,8 @@ static RenderState s_renderStates[RenderState::Count] =
 		, BGFX_STENCIL_NONE
 	},
 	{ // ProjectionShadows_DrawAmbient
-		BGFX_STATE_RGB_WRITE
-		| BGFX_STATE_DEPTH_WRITE // write depth !
+		BGFX_STATE_WRITE_RGB
+		| BGFX_STATE_WRITE_Z // write depth !
 		| BGFX_STATE_DEPTH_TEST_LESS
 		| BGFX_STATE_CULL_CCW
 		| BGFX_STATE_MSAA
@@ -467,7 +475,7 @@ static RenderState s_renderStates[RenderState::Count] =
 		, BGFX_STENCIL_NONE
 	},
 	{ // ProjectionShadows_DrawDiffuse
-		BGFX_STATE_RGB_WRITE
+		BGFX_STATE_WRITE_RGB
 		| BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE)
 		| BGFX_STATE_DEPTH_TEST_EQUAL
 		| BGFX_STATE_CULL_CCW
@@ -482,9 +490,9 @@ static RenderState s_renderStates[RenderState::Count] =
 		, BGFX_STENCIL_NONE
 	},
 	{ // Custom_BlendLightTexture
-		BGFX_STATE_RGB_WRITE
-		| BGFX_STATE_ALPHA_WRITE
-		| BGFX_STATE_DEPTH_WRITE
+		BGFX_STATE_WRITE_RGB
+		| BGFX_STATE_WRITE_A
+		| BGFX_STATE_WRITE_Z
 		| BGFX_STATE_DEPTH_TEST_LESS
 		| BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_COLOR, BGFX_STATE_BLEND_INV_SRC_COLOR)
 		| BGFX_STATE_CULL_CCW
@@ -494,7 +502,7 @@ static RenderState s_renderStates[RenderState::Count] =
 		, BGFX_STENCIL_NONE
 	},
 	{ // Custom_DrawPlaneBottom
-		BGFX_STATE_RGB_WRITE
+		BGFX_STATE_WRITE_RGB
 		| BGFX_STATE_CULL_CW
 		| BGFX_STATE_MSAA
 		, UINT32_MAX
@@ -505,7 +513,7 @@ static RenderState s_renderStates[RenderState::Count] =
 
 struct ViewState
 {
-	ViewState(uint32_t _width = 1280, uint32_t _height = 720)
+	ViewState(uint32_t _width = 0, uint32_t _height = 0)
 		: m_width(_width)
 		, m_height(_height)
 	{
@@ -534,7 +542,7 @@ struct ClearValues
 	uint8_t  m_clearStencil;
 };
 
-void clearView(uint8_t _id, uint8_t _flags, const ClearValues& _clearValues)
+void clearView(bgfx::ViewId _id, uint8_t _flags, const ClearValues& _clearValues)
 {
 	bgfx::setViewClear(_id
 		, _flags
@@ -612,11 +620,6 @@ struct Group
 	Obb m_obb;
 	PrimitiveArray m_prims;
 };
-
-namespace bgfx
-{
-	int32_t read(bx::ReaderI* _reader, bgfx::VertexDecl& _decl, bx::Error* _err = NULL);
-}
 
 struct Mesh
 {
@@ -733,23 +736,23 @@ struct Mesh
 		for (GroupArray::const_iterator it = m_groups.begin(), itEnd = m_groups.end(); it != itEnd; ++it)
 		{
 			const Group& group = *it;
-			bgfx::destroyVertexBuffer(group.m_vbh);
+			bgfx::destroy(group.m_vbh);
 
 			if (bgfx::isValid(group.m_ibh) )
 			{
-				bgfx::destroyIndexBuffer(group.m_ibh);
+				bgfx::destroy(group.m_ibh);
 			}
 		}
 		m_groups.clear();
 	}
 
-	void submit(uint8_t _viewId, float* _mtx, bgfx::ProgramHandle _program, const RenderState& _renderState)
+	void submit(bgfx::ViewId _id, float* _mtx, bgfx::ProgramHandle _program, const RenderState& _renderState)
 	{
 		bgfx::TextureHandle texture = BGFX_INVALID_HANDLE;
-		submit(_viewId, _mtx, _program, _renderState, texture);
+		submit(_id, _mtx, _program, _renderState, texture);
 	}
 
-	void submit(uint8_t _viewId, float* _mtx, bgfx::ProgramHandle _program, const RenderState& _renderState, bgfx::TextureHandle _texture)
+	void submit(bgfx::ViewId _id, float* _mtx, bgfx::ProgramHandle _program, const RenderState& _renderState, bgfx::TextureHandle _texture)
 	{
 		for (GroupArray::const_iterator it = m_groups.begin(), itEnd = m_groups.end(); it != itEnd; ++it)
 		{
@@ -771,10 +774,10 @@ struct Mesh
 			bgfx::setState(_renderState.m_state, _renderState.m_blendFactorRgba);
 
 			// Submit
-			bgfx::submit(_viewId, _program);
+			bgfx::submit(_id, _program);
 
 			// Keep track of submited view ids
-			s_viewMask |= 1 << _viewId;
+			s_viewMask |= 1 << _id;
 		}
 	}
 
@@ -787,18 +790,28 @@ struct Mesh
 class ExampleStencil : public entry::AppI
 {
 public:
-	virtual void init(int _argc, char** _argv) BX_OVERRIDE
+	ExampleStencil(const char* _name, const char* _description)
+		: entry::AppI(_name, _description)
+	{
+	}
+
+	virtual void init(int32_t _argc, const char* const* _argv, uint32_t _width, uint32_t _height) override
 	{
 		Args args(_argc, _argv);
 
-		m_viewState = ViewState(1280, 720);
+		m_viewState   = ViewState(_width, _height);
 		m_clearValues = ClearValues(0x30303000, 1.0f, 0);
 
-		m_debug = BGFX_DEBUG_TEXT;
+		m_debug = BGFX_DEBUG_NONE;
 		m_reset = BGFX_RESET_VSYNC;
 
-		bgfx::init(args.m_type, args.m_pciId);
-		bgfx::reset(m_viewState.m_width, m_viewState.m_height, m_reset);
+		bgfx::Init init;
+		init.type     = args.m_type;
+		init.vendorId = args.m_pciId;
+		init.resolution.width  = m_viewState.m_width;
+		init.resolution.height = m_viewState.m_height;
+		init.resolution.reset  = m_reset;
+		bgfx::init(init);
 
 		// Enable debug text.
 		bgfx::setDebug(m_debug);
@@ -868,7 +881,7 @@ public:
 		m_updateScene     = true;
 	}
 
-	virtual int shutdown() BX_OVERRIDE
+	virtual int shutdown() override
 	{
 		// Cleanup.
 		m_bunnyMesh.unload();
@@ -877,17 +890,17 @@ public:
 		m_hplaneMesh.unload();
 		m_vplaneMesh.unload();
 
-		bgfx::destroyTexture(m_figureTex);
-		bgfx::destroyTexture(m_fieldstoneTex);
-		bgfx::destroyTexture(m_flareTex);
+		bgfx::destroy(m_figureTex);
+		bgfx::destroy(m_fieldstoneTex);
+		bgfx::destroy(m_flareTex);
 
-		bgfx::destroyProgram(m_programTextureLighting);
-		bgfx::destroyProgram(m_programColorLighting);
-		bgfx::destroyProgram(m_programColorTexture);
-		bgfx::destroyProgram(m_programColorBlack);
-		bgfx::destroyProgram(m_programTexture);
+		bgfx::destroy(m_programTextureLighting);
+		bgfx::destroy(m_programColorLighting);
+		bgfx::destroy(m_programColorTexture);
+		bgfx::destroy(m_programColorBlack);
+		bgfx::destroy(m_programTexture);
 
-		bgfx::destroyUniform(s_texColor);
+		bgfx::destroy(s_texColor);
 
 		s_uniforms.destroy();
 
@@ -900,7 +913,7 @@ public:
 		return 0;
 	}
 
-	virtual bool update() BX_OVERRIDE
+	virtual bool update() override
 	{
 		if (!entry::processEvents(m_viewState.m_width, m_viewState.m_height, m_debug, m_reset, &m_mouseState) )
 		{
@@ -914,11 +927,19 @@ public:
 				, uint16_t(m_viewState.m_height)
 				);
 
-			ImGui::SetNextWindowPos(ImVec2(m_viewState.m_width - m_viewState.m_width / 5.0f - 10.0f, 10.0f) );
-			ImGui::Begin("Stencil Settings"
+			showExampleDialog(this);
+
+			ImGui::SetNextWindowPos(
+				  ImVec2(m_viewState.m_width - m_viewState.m_width / 5.0f - 10.0f, 10.0f)
+				, ImGuiCond_FirstUseEver
+				);
+			ImGui::SetNextWindowSize(
+				  ImVec2(m_viewState.m_width / 5.0f, m_viewState.m_height / 2.0f)
+				, ImGuiCond_FirstUseEver
+				);
+			ImGui::Begin("Settings"
 				, NULL
-				, ImVec2(m_viewState.m_width / 5.0f, m_viewState.m_height / 2.0f)
-				, ImGuiWindowFlags_AlwaysAutoResize
+				, 0
 				);
 
 			{
@@ -958,7 +979,7 @@ public:
 			uint8_t numLights = (uint8_t)m_numLights;
 			s_uniforms.m_params.m_ambientPass  = 1.0f;
 			s_uniforms.m_params.m_lightingPass = 1.0f;
-			s_uniforms.m_params.m_lightCount   = m_numLights;
+			s_uniforms.m_params.m_lightCount   = float(m_numLights);
 			s_uniforms.m_params.m_lightIndex   = 0.0f;
 			s_uniforms.m_color[3]              = m_reflectionValue;
 
@@ -968,16 +989,9 @@ public:
 			const int64_t frameTime = now - last;
 			last = now;
 			const double freq = double(bx::getHPFrequency() );
-			const double toMs = 1000.0/freq;
 			const float time = (float)( (now - m_timeOffset)/double(bx::getHPFrequency() ) );
 			const float deltaTime = float(frameTime/freq);
 			s_uniforms.m_time = time;
-
-			// Use debug font to print information about this example.
-			bgfx::dbgTextClear();
-			bgfx::dbgTextPrintf(0, 1, 0x4f, "bgfx/examples/13-stencil");
-			bgfx::dbgTextPrintf(0, 2, 0x6f, "Description: Stencil reflections and shadows.");
-			bgfx::dbgTextPrintf(0, 3, 0x0f, "Frame: % 7.3f[ms]", double(frameTime)*toMs);
 
 			// Update camera.
 			cameraUpdate(deltaTime, m_mouseState);
@@ -999,9 +1013,9 @@ public:
 			const float radius = (m_scene == StencilReflectionScene) ? 15.0f : 25.0f;
 			for (uint8_t ii = 0; ii < numLights; ++ii)
 			{
-				lightPosRadius[ii][0] = bx::fsin( (lightTimeAccumulator*1.1f + ii*0.03f + ii*bx::kPiHalf*1.07f ) )*20.0f;
-				lightPosRadius[ii][1] = 8.0f + (1.0f - bx::fcos( (lightTimeAccumulator*1.5f + ii*0.29f + bx::kPiHalf*1.49f ) ) )*4.0f;
-				lightPosRadius[ii][2] = bx::fcos( (lightTimeAccumulator*1.3f + ii*0.13f + ii*bx::kPiHalf*1.79f ) )*20.0f;
+				lightPosRadius[ii][0] = bx::sin( (lightTimeAccumulator*1.1f + ii*0.03f + ii*bx::kPiHalf*1.07f ) )*20.0f;
+				lightPosRadius[ii][1] = 8.0f + (1.0f - bx::cos( (lightTimeAccumulator*1.5f + ii*0.29f + bx::kPiHalf*1.49f ) ) )*4.0f;
+				lightPosRadius[ii][2] = bx::cos( (lightTimeAccumulator*1.3f + ii*0.13f + ii*bx::kPiHalf*1.79f ) )*20.0f;
 				lightPosRadius[ii][3] = radius;
 			}
 			bx::memCopy(s_uniforms.m_lightPosRadius, lightPosRadius, numLights * 4*sizeof(float) );
@@ -1071,9 +1085,9 @@ public:
 					, 0.0f
 					, 0.0f
 					, 0.0f
-					, bx::fsin(ii * 2.0f + 13.0f - sceneTimeAccumulator) * 13.0f
+					, bx::sin(ii * 2.0f + 13.0f - sceneTimeAccumulator) * 13.0f
 					, 4.0f
-					, bx::fcos(ii * 2.0f + 13.0f - sceneTimeAccumulator) * 13.0f
+					, bx::cos(ii * 2.0f + 13.0f - sceneTimeAccumulator) * 13.0f
 					);
 			}
 
@@ -1395,4 +1409,6 @@ public:
 
 };
 
-ENTRY_IMPLEMENT_MAIN(ExampleStencil);
+} // namespace
+
+ENTRY_IMPLEMENT_MAIN(ExampleStencil, "13-stencil", "Stencil reflections and shadows.");

@@ -12,9 +12,13 @@
 #include <bgfx/bgfx.h>
 #include <bx/timer.h>
 #include <bx/readerwriter.h>
-#include <bx/fpumath.h>
+#include <bx/math.h>
 #include "entry/entry.h"
 #include "bgfx_utils.h"
+#include "imgui/imgui.h"
+
+namespace
+{
 
 #define RENDER_SHADOW_PASS_ID 0
 #define RENDER_SCENE_PASS_ID  1
@@ -56,23 +60,34 @@ static const uint16_t s_planeIndices[] =
 
 class ExampleShadowmapsSimple : public entry::AppI
 {
-	void init(int _argc, char** _argv) BX_OVERRIDE
+public:
+	ExampleShadowmapsSimple(const char* _name, const char* _description)
+		: entry::AppI(_name, _description)
+	{
+	}
+
+	void init(int32_t _argc, const char* const* _argv, uint32_t _width, uint32_t _height) override
 	{
 		Args args(_argc, _argv);
 
-		m_width = 1280;
-		m_height = 720;
-		m_debug = BGFX_DEBUG_TEXT;
+		m_width  = _width;
+		m_height = _height;
+		m_debug = BGFX_DEBUG_NONE;
 		m_reset = BGFX_RESET_VSYNC;
 
-		bgfx::init(args.m_type, args.m_pciId);
-		bgfx::reset(m_width, m_height, m_reset);
+		bgfx::Init init;
+		init.type     = args.m_type;
+		init.vendorId = args.m_pciId;
+		init.resolution.width  = m_width;
+		init.resolution.height = m_height;
+		init.resolution.reset  = m_reset;
+		bgfx::init(init);
 
 		// Enable debug text.
 		bgfx::setDebug(m_debug);
 
 		// Uniforms.
-		u_shadowMap = bgfx::createUniform("u_shadowMap", bgfx::UniformType::Int1);
+		s_shadowMap = bgfx::createUniform("s_shadowMap", bgfx::UniformType::Int1);
 		u_lightPos  = bgfx::createUniform("u_lightPos",  bgfx::UniformType::Vec4);
 		u_lightMtx  = bgfx::createUniform("u_lightMtx",  bgfx::UniformType::Mat4);
 
@@ -169,9 +184,8 @@ class ExampleShadowmapsSimple : public entry::AppI
 
 		m_state[0] = meshStateCreate();
 		m_state[0]->m_state = 0
-			| BGFX_STATE_RGB_WRITE
-			| BGFX_STATE_ALPHA_WRITE
-			| BGFX_STATE_DEPTH_WRITE
+			| (m_shadowSamplerSupported ? 0 : BGFX_STATE_WRITE_RGB|BGFX_STATE_WRITE_A)
+			| BGFX_STATE_WRITE_Z
 			| BGFX_STATE_DEPTH_TEST_LESS
 			| BGFX_STATE_CULL_CCW
 			| BGFX_STATE_MSAA
@@ -182,9 +196,9 @@ class ExampleShadowmapsSimple : public entry::AppI
 
 		m_state[1] = meshStateCreate();
 		m_state[1]->m_state = 0
-			| BGFX_STATE_RGB_WRITE
-			| BGFX_STATE_ALPHA_WRITE
-			| BGFX_STATE_DEPTH_WRITE
+			| BGFX_STATE_WRITE_RGB
+			| BGFX_STATE_WRITE_A
+			| BGFX_STATE_WRITE_Z
 			| BGFX_STATE_DEPTH_TEST_LESS
 			| BGFX_STATE_CULL_CCW
 			| BGFX_STATE_MSAA
@@ -194,7 +208,7 @@ class ExampleShadowmapsSimple : public entry::AppI
 		m_state[1]->m_numTextures = 1;
 		m_state[1]->m_textures[0].m_flags = UINT32_MAX;
 		m_state[1]->m_textures[0].m_stage = 0;
-		m_state[1]->m_textures[0].m_sampler = u_shadowMap;
+		m_state[1]->m_textures[0].m_sampler = s_shadowMap;
 		m_state[1]->m_textures[0].m_texture = shadowMapTexture;
 
 		// Set view and projection matrices.
@@ -207,10 +221,14 @@ class ExampleShadowmapsSimple : public entry::AppI
 		bx::mtxProj(m_proj, 60.0f, aspect, 0.1f, 1000.0f, bgfx::getCaps()->homogeneousDepth);
 
 		m_timeOffset = bx::getHPCounter();
+
+		imguiCreate();
 	}
 
-	virtual int shutdown() BX_OVERRIDE
+	virtual int shutdown() override
 	{
+		imguiDestroy();
+
 		meshUnload(m_bunny);
 		meshUnload(m_cube);
 		meshUnload(m_hollowcube);
@@ -218,18 +236,18 @@ class ExampleShadowmapsSimple : public entry::AppI
 		meshStateDestroy(m_state[0]);
 		meshStateDestroy(m_state[1]);
 
-		bgfx::destroyVertexBuffer(m_vbh);
-		bgfx::destroyIndexBuffer(m_ibh);
+		bgfx::destroy(m_vbh);
+		bgfx::destroy(m_ibh);
 
-		bgfx::destroyProgram(m_progShadow);
-		bgfx::destroyProgram(m_progMesh);
+		bgfx::destroy(m_progShadow);
+		bgfx::destroy(m_progMesh);
 
-		bgfx::destroyFrameBuffer(m_shadowMapFB);
+		bgfx::destroy(m_shadowMapFB);
 
-		bgfx::destroyUniform(u_shadowMap);
-		bgfx::destroyUniform(u_lightPos);
-		bgfx::destroyUniform(u_lightMtx);
-		bgfx::destroyUniform(u_depthScaleOffset);
+		bgfx::destroy(s_shadowMap);
+		bgfx::destroy(u_lightPos);
+		bgfx::destroy(u_lightMtx);
+		bgfx::destroy(u_depthScaleOffset);
 
 		// Shutdown bgfx.
 		bgfx::shutdown();
@@ -237,30 +255,33 @@ class ExampleShadowmapsSimple : public entry::AppI
 		return 0;
 	}
 
-	bool update() BX_OVERRIDE
+	bool update() override
 	{
-		while (!entry::processEvents(m_width, m_height, m_debug, m_reset, &m_mouseState) )
+		if (!entry::processEvents(m_width, m_height, m_debug, m_reset, &m_mouseState) )
 		{
+			imguiBeginFrame(m_mouseState.m_mx
+				,  m_mouseState.m_my
+				, (m_mouseState.m_buttons[entry::MouseButton::Left  ] ? IMGUI_MBUT_LEFT   : 0)
+				| (m_mouseState.m_buttons[entry::MouseButton::Right ] ? IMGUI_MBUT_RIGHT  : 0)
+				| (m_mouseState.m_buttons[entry::MouseButton::Middle] ? IMGUI_MBUT_MIDDLE : 0)
+				,  m_mouseState.m_mz
+				, uint16_t(m_width)
+				, uint16_t(m_height)
+				);
+
+			showExampleDialog(this);
+
+			imguiEndFrame();
+
 			int64_t now = bx::getHPCounter();
-			static int64_t last = now;
-			const int64_t frameTime = now - last;
-			last = now;
 			const double freq = double(bx::getHPFrequency() );
-			const double toMs = 1000.0/freq;
-
 			float time = float( (now-m_timeOffset)/freq);
-
-			// Use debug font to print information about this example.
-			bgfx::dbgTextClear();
-			bgfx::dbgTextPrintf(0, 1, 0x4f, "bgfx/examples/15-shadowmaps-simple");
-			bgfx::dbgTextPrintf(0, 2, 0x6f, "Description: Shadow maps example (technique: %s).", m_shadowSamplerSupported ? "depth texture and shadow samplers" : "shadow depth packed into color texture");
-			bgfx::dbgTextPrintf(0, 3, 0x0f, "Frame: % 7.3f[ms]", double(frameTime)*toMs);
 
 			// Setup lights.
 			float lightPos[4];
-			lightPos[0] = -bx::fcos(time);
+			lightPos[0] = -bx::cos(time);
 			lightPos[1] = -1.0f;
-			lightPos[2] = -bx::fsin(time);
+			lightPos[2] = -bx::sin(time);
 			lightPos[3] = 0.0f;
 
 			bgfx::setUniform(u_lightPos, lightPos);
@@ -404,7 +425,7 @@ class ExampleShadowmapsSimple : public entry::AppI
 	uint32_t m_debug;
 	uint32_t m_reset;
 
-	bgfx::UniformHandle u_shadowMap;
+	bgfx::UniformHandle s_shadowMap;
 	bgfx::UniformHandle u_lightPos;
 	bgfx::UniformHandle u_lightMtx;
 
@@ -433,5 +454,6 @@ class ExampleShadowmapsSimple : public entry::AppI
 	int64_t m_timeOffset;
 };
 
-ENTRY_IMPLEMENT_MAIN(ExampleShadowmapsSimple);
+} // namespace
 
+ENTRY_IMPLEMENT_MAIN(ExampleShadowmapsSimple, "15-shadowmaps-simple", "Shadow maps example");

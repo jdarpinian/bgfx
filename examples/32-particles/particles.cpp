@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2017 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2018 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -16,6 +16,9 @@
 #include <bx/easing.h>
 
 #include <ps/particle_system.h>
+
+namespace
+{
 
 static const char* s_shapeNames[] =
 {
@@ -35,6 +38,8 @@ static const char* s_directionName[] =
 static const char* s_easeFuncName[] =
 {
 	"Linear",
+	"Step",
+	"SmoothStep",
 	"InQuad",
 	"OutQuad",
 	"InOutQuad",
@@ -191,11 +196,11 @@ struct Emitter
 			ImGui::Text("Color:");
 
 			ImGui::Combo("RGBA Ease", (int*)&m_uniforms.m_easeRgba, s_easeFuncName, BX_COUNTOF(s_easeFuncName) );
-			ImGui::ColorEdit4("RGBA0", &m_uniforms.m_rgba[0], true);
-			ImGui::ColorEdit4("RGBA1", &m_uniforms.m_rgba[1], true);
-			ImGui::ColorEdit4("RGBA2", &m_uniforms.m_rgba[2], true);
-			ImGui::ColorEdit4("RGBA3", &m_uniforms.m_rgba[3], true);
-			ImGui::ColorEdit4("RGBA4", &m_uniforms.m_rgba[4], true);
+			ImGui::ColorWheel("RGBA0", &m_uniforms.m_rgba[0], 0.3f);
+			ImGui::ColorWheel("RGBA1", &m_uniforms.m_rgba[1], 0.3f);
+			ImGui::ColorWheel("RGBA2", &m_uniforms.m_rgba[2], 0.3f);
+			ImGui::ColorWheel("RGBA3", &m_uniforms.m_rgba[3], 0.3f);
+			ImGui::ColorWheel("RGBA4", &m_uniforms.m_rgba[4], 0.3f);
 		}
 	}
 
@@ -224,19 +229,30 @@ struct Emitter
 	}
 };
 
-class Particles : public entry::AppI
+class ExampleParticles : public entry::AppI
 {
-	void init(int _argc, char** _argv) BX_OVERRIDE
+public:
+	ExampleParticles(const char* _name, const char* _description)
+		: entry::AppI(_name, _description)
+	{
+	}
+
+	void init(int32_t _argc, const char* const* _argv, uint32_t _width, uint32_t _height) override
 	{
 		Args args(_argc, _argv);
 
-		m_width  = 1280;
-		m_height = 720;
-		m_debug  = BGFX_DEBUG_TEXT;
+		m_width  = _width;
+		m_height = _height;
+		m_debug  = BGFX_DEBUG_NONE;
 		m_reset  = BGFX_RESET_VSYNC;
 
-		bgfx::init(args.m_type, args.m_pciId);
-		bgfx::reset(m_width, m_height, m_reset);
+		bgfx::Init init;
+		init.type     = args.m_type;
+		init.vendorId = args.m_pciId;
+		init.resolution.width  = m_width;
+		init.resolution.height = m_height;
+		init.resolution.reset  = m_reset;
+		bgfx::init(init);
 
 		// Enable m_debug text.
 		bgfx::setDebug(m_debug);
@@ -270,6 +286,7 @@ class Particles : public entry::AppI
 		{
 			m_emitter[ii].create();
 			m_emitter[ii].m_uniforms.m_handle = sprite;
+			m_emitter[ii].update();
 		}
 
 		imguiCreate();
@@ -283,7 +300,7 @@ class Particles : public entry::AppI
 		m_timeOffset = bx::getHPCounter();
 	}
 
-	virtual int shutdown() BX_OVERRIDE
+	virtual int shutdown() override
 	{
 		for (uint32_t ii = 0; ii < BX_COUNTOF(m_emitter); ++ii)
 		{
@@ -304,7 +321,7 @@ class Particles : public entry::AppI
 		return 0;
 	}
 
-	bool update() BX_OVERRIDE
+	bool update() override
 	{
 		if (!entry::processEvents(m_width, m_height, m_debug, m_reset, &m_mouseState) )
 		{
@@ -318,14 +335,7 @@ class Particles : public entry::AppI
 			const int64_t frameTime = now - last;
 			last = now;
 			const double freq = double(bx::getHPFrequency() );
-			const double toMs = 1000.0/freq;
 			const float deltaTime = float(frameTime/freq);
-
-			// Use debug font to print information about this example.
-			bgfx::dbgTextClear();
-			bgfx::dbgTextPrintf(0, 1, 0x4f, "bgfx/examples/32-particles");
-			bgfx::dbgTextPrintf(0, 2, 0x6f, "Description: Particles.");
-			bgfx::dbgTextPrintf(0, 3, 0x0f, "Frame: % 7.3f[ms]", double(frameTime)*toMs);
 
 			cameraUpdate(deltaTime, m_mouseState);
 
@@ -363,10 +373,18 @@ class Particles : public entry::AppI
 				, uint16_t(m_height)
 				);
 
-			ImGui::Begin("Properties"
+			showExampleDialog(this);
+
+			ImGui::SetNextWindowPos(
+				  ImVec2(m_width - m_width / 4.0f - 10.0f, 10.0f)
+				, ImGuiCond_FirstUseEver
+				);
+			ImGui::SetNextWindowSize(
+				  ImVec2(m_width / 4.0f, m_height - 20.0f)
+				, ImGuiCond_FirstUseEver
+				);
+			ImGui::Begin("Settings"
 				, NULL
-				, ImVec2(400.0f, 600.0f)
-				, ImGuiWindowFlags_AlwaysAutoResize
 				);
 
 			static float timeScale = 1.0f;
@@ -416,8 +434,11 @@ class Particles : public entry::AppI
 			{
 				Aabb aabb;
 				psGetAabb(m_emitter[currentEmitter].m_handle, aabb);
-				ddSetColor(0xff0000ff);
-				ddDraw(aabb);
+				ddPush();
+					ddSetWireframe(true);
+					ddSetColor(0xff0000ff);
+					ddDraw(aabb);
+				ddPop();
 			}
 
 			ddEnd();
@@ -444,4 +465,6 @@ class Particles : public entry::AppI
 	Emitter m_emitter[4];
 };
 
-ENTRY_IMPLEMENT_MAIN(Particles);
+} // namespace
+
+ENTRY_IMPLEMENT_MAIN(ExampleParticles, "32-particles", "Particles.");

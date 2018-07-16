@@ -8,7 +8,7 @@
 
 #include <bx/timer.h>
 #include <bx/string.h>
-#include <bx/fpumath.h>
+#include <bx/math.h>
 
 #include "font/font_manager.h"
 #include "font/text_buffer_manager.h"
@@ -18,6 +18,11 @@
 #include <iconfontheaders/icons_kenney.h>
 
 #include <wchar.h>
+
+#include "imgui/imgui.h"
+
+namespace
+{
 
 TrueTypeHandle loadTtf(FontManager* _fm, const char* _filePath)
 {
@@ -48,17 +53,28 @@ static const char* s_fontFilePath[] =
 
 class ExampleFont : public entry::AppI
 {
-	void init(int _argc, char** _argv) BX_OVERRIDE
+public:
+	ExampleFont(const char* _name, const char* _description)
+		: entry::AppI(_name, _description)
+	{
+	}
+
+	void init(int32_t _argc, const char* const* _argv, uint32_t _width, uint32_t _height) override
 	{
 		Args args(_argc, _argv);
 
-		m_width = 1280;
-		m_height = 720;
-		m_debug = BGFX_DEBUG_TEXT;
-		m_reset = BGFX_RESET_VSYNC;
+		m_width  = _width;
+		m_height = _height;
+		m_debug  = BGFX_DEBUG_NONE;
+		m_reset  = BGFX_RESET_VSYNC;
 
-		bgfx::init(args.m_type, args.m_pciId);
-		bgfx::reset(m_width, m_height, m_reset);
+		bgfx::Init init;
+		init.type     = args.m_type;
+		init.vendorId = args.m_pciId;
+		init.resolution.width  = m_width;
+		init.resolution.height = m_height;
+		init.resolution.reset  = m_reset;
+		bgfx::init(init);
 
 		// Enable debug text.
 		bgfx::setDebug(m_debug);
@@ -170,10 +186,14 @@ class ExampleFont : public entry::AppI
 
 		// Create a transient buffer for real-time data.
 		m_transientText = m_textBufferManager->createTextBuffer(FONT_TYPE_ALPHA, BufferType::Transient);
+
+		imguiCreate();
 	}
 
-	virtual int shutdown() BX_OVERRIDE
+	virtual int shutdown() override
 	{
+		imguiDestroy();
+
 		m_fontManager->destroyTtf(m_fontKenneyTtf);
 		m_fontManager->destroyTtf(m_fontAwesomeTtf);
 		m_fontManager->destroyTtf(m_visitorTtf);
@@ -199,10 +219,24 @@ class ExampleFont : public entry::AppI
 		return 0;
 	}
 
-	bool update() BX_OVERRIDE
+	bool update() override
 	{
-		if (!entry::processEvents(m_width, m_height, m_debug, m_reset) )
+		if (!entry::processEvents(m_width, m_height, m_debug, m_reset, &m_mouseState) )
 		{
+			imguiBeginFrame(m_mouseState.m_mx
+				,  m_mouseState.m_my
+				, (m_mouseState.m_buttons[entry::MouseButton::Left  ] ? IMGUI_MBUT_LEFT   : 0)
+				| (m_mouseState.m_buttons[entry::MouseButton::Right ] ? IMGUI_MBUT_RIGHT  : 0)
+				| (m_mouseState.m_buttons[entry::MouseButton::Middle] ? IMGUI_MBUT_MIDDLE : 0)
+				,  m_mouseState.m_mz
+				, uint16_t(m_width)
+				, uint16_t(m_height)
+				);
+
+			showExampleDialog(this);
+
+			imguiEndFrame();
+
 			// This dummy draw call is here to make sure that view 0 is cleared
 			// if no other draw calls are submitted to view 0.
 			bgfx::touch(0);
@@ -214,20 +248,14 @@ class ExampleFont : public entry::AppI
 			const double freq = double(bx::getHPFrequency() );
 			const double toMs = 1000.0 / freq;
 
-			// Use debug font to print information about this example.
-			bgfx::dbgTextClear();
-			bgfx::dbgTextPrintf(0, 1, 0x4f, "bgfx/examples/10-font");
-			bgfx::dbgTextPrintf(0, 2, 0x6f, "Description: Use the font system to display text and styled text.");
-			bgfx::dbgTextPrintf(0, 3, 0x0f, "Frame: % 7.3f[ms]", double(frameTime)*toMs);
-
 			// Use transient text to display debug information.
-			wchar_t fpsText[64];
-			bx::swnprintf(fpsText, BX_COUNTOF(fpsText), L"Frame: % 7.3f[ms]", double(frameTime) * toMs);
+			char fpsText[64];
+			bx::snprintf(fpsText, BX_COUNTOF(fpsText), "Frame: % 7.3f[ms]", double(frameTime) * toMs);
 
 			m_textBufferManager->clearTextBuffer(m_transientText);
 			m_textBufferManager->setPenPosition(m_transientText, m_width - 150.0f, 10.0f);
-			m_textBufferManager->appendText(m_transientText, m_visitor10, L"Transient\n");
-			m_textBufferManager->appendText(m_transientText, m_visitor10, L"text buffer\n");
+			m_textBufferManager->appendText(m_transientText, m_visitor10, "Transient\n");
+			m_textBufferManager->appendText(m_transientText, m_visitor10, "text buffer\n");
 			m_textBufferManager->appendText(m_transientText, m_visitor10, fpsText);
 
 			float at[3]  = { 0, 0,  0.0f };
@@ -315,6 +343,8 @@ class ExampleFont : public entry::AppI
 		return false;
 	}
 
+	entry::MouseState m_mouseState;
+
 	uint32_t m_width;
 	uint32_t m_height;
 	uint32_t m_debug;
@@ -339,4 +369,6 @@ class ExampleFont : public entry::AppI
 	FontHandle m_fonts[numFonts];
 };
 
-ENTRY_IMPLEMENT_MAIN(ExampleFont);
+} // namespace
+
+ENTRY_IMPLEMENT_MAIN(ExampleFont, "10-font", "Use the font system to display text and styled text.");

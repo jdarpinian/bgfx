@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2017 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2018 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -13,7 +13,7 @@ namespace stl = tinystl;
 #include <bgfx/bgfx.h>
 #include <bx/commandline.h>
 #include <bx/endian.h>
-#include <bx/fpumath.h>
+#include <bx/math.h>
 #include <bx/readerwriter.h>
 #include <bx/string.h>
 #include "entry/entry.h"
@@ -123,7 +123,10 @@ static bgfx::ShaderHandle loadShader(bx::FileReaderI* _reader, const char* _name
 	bx::strCat(filePath, BX_COUNTOF(filePath), _name);
 	bx::strCat(filePath, BX_COUNTOF(filePath), ".bin");
 
-	return bgfx::createShader(loadMem(_reader, filePath) );
+	bgfx::ShaderHandle handle = bgfx::createShader(loadMem(_reader, filePath) );
+	bgfx::setName(handle, filePath);
+
+	return handle;
 }
 
 bgfx::ShaderHandle loadShader(const char* _name)
@@ -155,7 +158,7 @@ static void imageReleaseCb(void* _ptr, void* _userData)
 	bimg::imageFree(imageContainer);
 }
 
-bgfx::TextureHandle loadTexture(bx::FileReaderI* _reader, const char* _filePath, uint32_t _flags, uint8_t _skip, bgfx::TextureInfo* _info)
+bgfx::TextureHandle loadTexture(bx::FileReaderI* _reader, const char* _filePath, uint32_t _flags, uint8_t _skip, bgfx::TextureInfo* _info, bimg::Orientation::Enum* _orientation)
 {
 	BX_UNUSED(_skip);
 	bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
@@ -168,6 +171,11 @@ bgfx::TextureHandle loadTexture(bx::FileReaderI* _reader, const char* _filePath,
 
 		if (NULL != imageContainer)
 		{
+			if (NULL != _orientation)
+			{
+				*_orientation = imageContainer->m_orientation;
+			}
+
 			const bgfx::Memory* mem = bgfx::makeRef(
 					  imageContainer->m_data
 					, imageContainer->m_size
@@ -187,7 +195,19 @@ bgfx::TextureHandle loadTexture(bx::FileReaderI* _reader, const char* _filePath,
 					, mem
 					);
 			}
-			else
+			else if (1 < imageContainer->m_depth)
+			{
+				handle = bgfx::createTexture3D(
+					  uint16_t(imageContainer->m_width)
+					, uint16_t(imageContainer->m_height)
+					, uint16_t(imageContainer->m_depth)
+					, 1 < imageContainer->m_numMips
+					, bgfx::TextureFormat::Enum(imageContainer->m_format)
+					, _flags
+					, mem
+					);
+			}
+			else if (bgfx::isTextureValid(0, false, imageContainer->m_numLayers, bgfx::TextureFormat::Enum(imageContainer->m_format), _flags) )
 			{
 				handle = bgfx::createTexture2D(
 					  uint16_t(imageContainer->m_width)
@@ -198,6 +218,11 @@ bgfx::TextureHandle loadTexture(bx::FileReaderI* _reader, const char* _filePath,
 					, _flags
 					, mem
 					);
+			}
+
+			if (bgfx::isValid(handle) )
+			{
+				bgfx::setName(handle, _filePath);
 			}
 
 			if (NULL != _info)
@@ -219,9 +244,9 @@ bgfx::TextureHandle loadTexture(bx::FileReaderI* _reader, const char* _filePath,
 	return handle;
 }
 
-bgfx::TextureHandle loadTexture(const char* _name, uint32_t _flags, uint8_t _skip, bgfx::TextureInfo* _info)
+bgfx::TextureHandle loadTexture(const char* _name, uint32_t _flags, uint8_t _skip, bgfx::TextureInfo* _info, bimg::Orientation::Enum* _orientation)
 {
-	return loadTexture(entry::getFileReader(), _name, _flags, _skip, _info);
+	return loadTexture(entry::getFileReader(), _name, _flags, _skip, _info, _orientation);
 }
 
 bimg::ImageContainer* imageLoad(const char* _filePath, bgfx::TextureFormat::Enum _dstFormat)
@@ -515,24 +540,24 @@ struct Mesh
 		for (GroupArray::const_iterator it = m_groups.begin(), itEnd = m_groups.end(); it != itEnd; ++it)
 		{
 			const Group& group = *it;
-			bgfx::destroyVertexBuffer(group.m_vbh);
+			bgfx::destroy(group.m_vbh);
 
 			if (bgfx::isValid(group.m_ibh) )
 			{
-				bgfx::destroyIndexBuffer(group.m_ibh);
+				bgfx::destroy(group.m_ibh);
 			}
 		}
 		m_groups.clear();
 	}
 
-	void submit(uint8_t _id, bgfx::ProgramHandle _program, const float* _mtx, uint64_t _state) const
+	void submit(bgfx::ViewId _id, bgfx::ProgramHandle _program, const float* _mtx, uint64_t _state) const
 	{
 		if (BGFX_STATE_MASK == _state)
 		{
 			_state = 0
-				| BGFX_STATE_RGB_WRITE
-				| BGFX_STATE_ALPHA_WRITE
-				| BGFX_STATE_DEPTH_WRITE
+				| BGFX_STATE_WRITE_RGB
+				| BGFX_STATE_WRITE_A
+				| BGFX_STATE_WRITE_Z
 				| BGFX_STATE_DEPTH_TEST_LESS
 				| BGFX_STATE_CULL_CCW
 				| BGFX_STATE_MSAA
@@ -626,7 +651,7 @@ void meshStateDestroy(MeshState* _meshState)
 	BX_FREE(entry::getAllocator(), _meshState);
 }
 
-void meshSubmit(const Mesh* _mesh, uint8_t _id, bgfx::ProgramHandle _program, const float* _mtx, uint64_t _state)
+void meshSubmit(const Mesh* _mesh, bgfx::ViewId _id, bgfx::ProgramHandle _program, const float* _mtx, uint64_t _state)
 {
 	_mesh->submit(_id, _program, _mtx, _state);
 }
@@ -636,7 +661,7 @@ void meshSubmit(const Mesh* _mesh, const MeshState*const* _state, uint8_t _numPa
 	_mesh->submit(_state, _numPasses, _mtx, _numMatrices);
 }
 
-Args::Args(int _argc, char** _argv)
+Args::Args(int _argc, const char* const* _argv)
 	: m_type(bgfx::RendererType::Count)
 	, m_pciId(BGFX_PCI_ID_NONE)
 {
@@ -654,7 +679,7 @@ Args::Args(int _argc, char** _argv)
 	{
 		m_type = bgfx::RendererType::Noop;
 	}
-	else if (BX_ENABLED(BX_PLATFORM_WINDOWS) )
+	else if (BX_ENABLED(BX_PLATFORM_WINDOWS|BX_PLATFORM_WINRT|BX_PLATFORM_XBOXONE) )
 	{
 		if (cmdLine.hasArg("d3d9") )
 		{

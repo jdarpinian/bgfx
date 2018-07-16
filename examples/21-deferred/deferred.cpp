@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2017 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2018 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -8,6 +8,9 @@
 #include "imgui/imgui.h"
 #include "camera.h"
 #include "bounds.h"
+
+namespace
+{
 
 #define RENDER_PASS_GEOMETRY_ID       0
 #define RENDER_PASS_LIGHT_ID          1
@@ -189,17 +192,28 @@ void screenSpaceQuad(float _textureWidth, float _textureHeight, float _texelHalf
 
 class ExampleDeferred : public entry::AppI
 {
-	void init(int _argc, char** _argv) BX_OVERRIDE
+public:
+	ExampleDeferred(const char* _name, const char* _description)
+		: entry::AppI(_name, _description)
+	{
+	}
+
+	void init(int32_t _argc, const char* const* _argv, uint32_t _width, uint32_t _height) override
 	{
 		Args args(_argc, _argv);
 
-		m_width  = 1280;
-		m_height = 720;
+		m_width  = _width;
+		m_height = _height;
 		m_debug  = BGFX_DEBUG_TEXT;
 		m_reset  = BGFX_RESET_VSYNC;
 
-		bgfx::init(args.m_type, args.m_pciId);
-		bgfx::reset(m_width, m_height, m_reset);
+		bgfx::Init init;
+		init.type     = args.m_type;
+		init.vendorId = args.m_pciId;
+		init.resolution.width  = m_width;
+		init.resolution.height = m_height;
+		init.resolution.reset  = m_reset;
+		bgfx::init(init);
 
 		// Enable m_debug text.
 		bgfx::setDebug(m_debug);
@@ -307,7 +321,7 @@ class ExampleDeferred : public entry::AppI
 		cameraSetVerticalAngle(0.0f);
 	}
 
-	virtual int shutdown() BX_OVERRIDE
+	virtual int shutdown() override
 	{
 		// Cleanup.
 		cameraDestroy();
@@ -315,32 +329,32 @@ class ExampleDeferred : public entry::AppI
 
 		if (bgfx::isValid(m_gbuffer) )
 		{
-			bgfx::destroyFrameBuffer(m_gbuffer);
-			bgfx::destroyFrameBuffer(m_lightBuffer);
+			bgfx::destroy(m_gbuffer);
+			bgfx::destroy(m_lightBuffer);
 		}
 
-		bgfx::destroyIndexBuffer(m_ibh);
-		bgfx::destroyVertexBuffer(m_vbh);
+		bgfx::destroy(m_ibh);
+		bgfx::destroy(m_vbh);
 
-		bgfx::destroyProgram(m_geomProgram);
-		bgfx::destroyProgram(m_lightProgram);
-		bgfx::destroyProgram(m_combineProgram);
-		bgfx::destroyProgram(m_debugProgram);
-		bgfx::destroyProgram(m_lineProgram);
+		bgfx::destroy(m_geomProgram);
+		bgfx::destroy(m_lightProgram);
+		bgfx::destroy(m_combineProgram);
+		bgfx::destroy(m_debugProgram);
+		bgfx::destroy(m_lineProgram);
 
-		bgfx::destroyTexture(m_textureColor);
-		bgfx::destroyTexture(m_textureNormal);
-		bgfx::destroyUniform(s_texColor);
-		bgfx::destroyUniform(s_texNormal);
+		bgfx::destroy(m_textureColor);
+		bgfx::destroy(m_textureNormal);
+		bgfx::destroy(s_texColor);
+		bgfx::destroy(s_texNormal);
 
-		bgfx::destroyUniform(s_albedo);
-		bgfx::destroyUniform(s_normal);
-		bgfx::destroyUniform(s_depth);
-		bgfx::destroyUniform(s_light);
+		bgfx::destroy(s_albedo);
+		bgfx::destroy(s_normal);
+		bgfx::destroy(s_depth);
+		bgfx::destroy(s_light);
 
-		bgfx::destroyUniform(u_lightPosRadius);
-		bgfx::destroyUniform(u_lightRgbInnerR);
-		bgfx::destroyUniform(u_mtx);
+		bgfx::destroy(u_lightPosRadius);
+		bgfx::destroy(u_lightRgbInnerR);
+		bgfx::destroy(u_mtx);
 
 		// Shutdown bgfx.
 		bgfx::shutdown();
@@ -348,32 +362,37 @@ class ExampleDeferred : public entry::AppI
 		return 0;
 	}
 
-	bool update() BX_OVERRIDE
+	bool update() override
 	{
 		if (!entry::processEvents(m_width, m_height, m_debug, m_reset, &m_mouseState) )
 		{
+			imguiBeginFrame(m_mouseState.m_mx
+					, m_mouseState.m_my
+					, (m_mouseState.m_buttons[entry::MouseButton::Left  ] ? IMGUI_MBUT_LEFT   : 0)
+					| (m_mouseState.m_buttons[entry::MouseButton::Right ] ? IMGUI_MBUT_RIGHT  : 0)
+					| (m_mouseState.m_buttons[entry::MouseButton::Middle] ? IMGUI_MBUT_MIDDLE : 0)
+					, m_mouseState.m_mz
+					, uint16_t(m_width)
+					, uint16_t(m_height)
+					);
+
+			showExampleDialog(this);
+
 			int64_t now = bx::getHPCounter();
 			static int64_t last = now;
 			const int64_t frameTime = now - last;
 			last = now;
 			const double freq = double(bx::getHPFrequency() );
-			const double toMs = 1000.0/freq;
 			const float deltaTime = float(frameTime/freq);
 
 			float time = (float)( (now-m_timeOffset)/freq);
-
-			// Use m_debug font to print information about this example.
-			bgfx::dbgTextClear();
-			bgfx::dbgTextPrintf(0, 1, 0x4f, "bgfx/examples/21-deferred");
-			bgfx::dbgTextPrintf(0, 2, 0x6f, "Description: MRT rendering and deferred shading.");
-			bgfx::dbgTextPrintf(0, 3, 0x0f, "Frame: % 7.3f[ms]", double(frameTime)*toMs);
 
 			if (2 > m_caps->limits.maxFBAttachments)
 			{
 				// When multiple render targets (MRT) is not supported by GPU,
 				// implement alternative code path that doesn't use MRT.
 				bool blink = uint32_t(time*3.0f)&1;
-				bgfx::dbgTextPrintf(0, 5, blink ? 0x1f : 0x01, " MRT not supported by GPU. ");
+				bgfx::dbgTextPrintf(0, 0, blink ? 0x4f : 0x04, " MRT not supported by GPU. ");
 
 				// Set view 0 default viewport.
 				bgfx::setViewRect(0, 0, 0, uint16_t(m_width), uint16_t(m_height) );
@@ -396,7 +415,7 @@ class ExampleDeferred : public entry::AppI
 
 					if (bgfx::isValid(m_gbuffer) )
 					{
-						bgfx::destroyFrameBuffer(m_gbuffer);
+						bgfx::destroy(m_gbuffer);
 					}
 
 					const uint32_t samplerFlags = 0
@@ -414,27 +433,23 @@ class ExampleDeferred : public entry::AppI
 
 					if (bgfx::isValid(m_lightBuffer) )
 					{
-						bgfx::destroyFrameBuffer(m_lightBuffer);
+						bgfx::destroy(m_lightBuffer);
 					}
 
 					m_lightBuffer = bgfx::createFrameBuffer(uint16_t(m_width), uint16_t(m_height), bgfx::TextureFormat::BGRA8, samplerFlags);
 				}
 
-				imguiBeginFrame(m_mouseState.m_mx
-						, m_mouseState.m_my
-						, (m_mouseState.m_buttons[entry::MouseButton::Left  ] ? IMGUI_MBUT_LEFT   : 0)
-						| (m_mouseState.m_buttons[entry::MouseButton::Right ] ? IMGUI_MBUT_RIGHT  : 0)
-						| (m_mouseState.m_buttons[entry::MouseButton::Middle] ? IMGUI_MBUT_MIDDLE : 0)
-						, m_mouseState.m_mz
-						, uint16_t(m_width)
-						, uint16_t(m_height)
-						);
-
-				ImGui::SetNextWindowPos(ImVec2(m_width - m_width / 5.0f - 10.0f, 10.0f) );
-				ImGui::Begin("Deferred Rendering Settings"
+				ImGui::SetNextWindowPos(
+					  ImVec2(m_width - m_width / 5.0f - 10.0f, 10.0f)
+					, ImGuiCond_FirstUseEver
+					);
+				ImGui::SetNextWindowSize(
+					  ImVec2(m_width / 5.0f, m_height / 3.0f)
+					, ImGuiCond_FirstUseEver
+					);
+				ImGui::Begin("Settings"
 					, NULL
-					, ImVec2(m_width / 5.0f, m_height / 3.0f)
-					, ImGuiWindowFlags_AlwaysAutoResize
+					, 0
 					);
 
 				ImGui::SliderInt("Num lights", &m_numLights, 1, 2048);
@@ -444,8 +459,6 @@ class ExampleDeferred : public entry::AppI
 				ImGui::SliderFloat("Anim.speed", &m_lightAnimationSpeed, 0.0f, 0.4f);
 
 				ImGui::End();
-
-				imguiEndFrame();
 
 				// Update camera.
 				cameraUpdate(deltaTime, m_mouseState);
@@ -523,9 +536,9 @@ class ExampleDeferred : public entry::AppI
 
 						// Set render states.
 						bgfx::setState(0
-								| BGFX_STATE_RGB_WRITE
-								| BGFX_STATE_ALPHA_WRITE
-								| BGFX_STATE_DEPTH_WRITE
+								| BGFX_STATE_WRITE_RGB
+								| BGFX_STATE_WRITE_A
+								| BGFX_STATE_WRITE_Z
 								| BGFX_STATE_DEPTH_TEST_LESS
 								| BGFX_STATE_MSAA
 								);
@@ -540,10 +553,10 @@ class ExampleDeferred : public entry::AppI
 				{
 					Sphere lightPosRadius;
 
-					float lightTime = time * m_lightAnimationSpeed * (bx::fsin(light/float(m_numLights) * bx::kPiHalf ) * 0.5f + 0.5f);
-					lightPosRadius.m_center[0] = bx::fsin( ( (lightTime + light*0.47f) + bx::kPiHalf*1.37f ) )*offset;
-					lightPosRadius.m_center[1] = bx::fcos( ( (lightTime + light*0.69f) + bx::kPiHalf*1.49f ) )*offset;
-					lightPosRadius.m_center[2] = bx::fsin( ( (lightTime + light*0.37f) + bx::kPiHalf*1.57f ) )*2.0f;
+					float lightTime = time * m_lightAnimationSpeed * (bx::sin(light/float(m_numLights) * bx::kPiHalf ) * 0.5f + 0.5f);
+					lightPosRadius.m_center[0] = bx::sin( ( (lightTime + light*0.47f) + bx::kPiHalf*1.37f ) )*offset;
+					lightPosRadius.m_center[1] = bx::cos( ( (lightTime + light*0.69f) + bx::kPiHalf*1.49f ) )*offset;
+					lightPosRadius.m_center[2] = bx::sin( ( (lightTime + light*0.37f) + bx::kPiHalf*1.57f ) )*2.0f;
 					lightPosRadius.m_radius = 2.0f;
 
 					Aabb aabb;
@@ -572,20 +585,20 @@ class ExampleDeferred : public entry::AppI
 					for (uint32_t ii = 1; ii < 8; ++ii)
 					{
 						bx::vec3MulMtxH(xyz, box[ii], vp);
-						minx = bx::fmin(minx, xyz[0]);
-						miny = bx::fmin(miny, xyz[1]);
-						maxx = bx::fmax(maxx, xyz[0]);
-						maxy = bx::fmax(maxy, xyz[1]);
-						maxz = bx::fmax(maxz, xyz[2]);
+						minx = bx::min(minx, xyz[0]);
+						miny = bx::min(miny, xyz[1]);
+						maxx = bx::max(maxx, xyz[0]);
+						maxy = bx::max(maxy, xyz[1]);
+						maxz = bx::max(maxz, xyz[2]);
 					}
 
 					// Cull light if it's fully behind camera.
 					if (maxz >= 0.0f)
 					{
-						float x0 = bx::fclamp( (minx * 0.5f + 0.5f) * m_width,  0.0f, (float)m_width);
-						float y0 = bx::fclamp( (miny * 0.5f + 0.5f) * m_height, 0.0f, (float)m_height);
-						float x1 = bx::fclamp( (maxx * 0.5f + 0.5f) * m_width,  0.0f, (float)m_width);
-						float y1 = bx::fclamp( (maxy * 0.5f + 0.5f) * m_height, 0.0f, (float)m_height);
+						float x0 = bx::clamp( (minx * 0.5f + 0.5f) * m_width,  0.0f, (float)m_width);
+						float y0 = bx::clamp( (miny * 0.5f + 0.5f) * m_height, 0.0f, (float)m_height);
+						float x1 = bx::clamp( (maxx * 0.5f + 0.5f) * m_width,  0.0f, (float)m_width);
+						float y1 = bx::clamp( (maxy * 0.5f + 0.5f) * m_height, 0.0f, (float)m_height);
 
 						if (m_showScissorRects)
 						{
@@ -632,7 +645,7 @@ class ExampleDeferred : public entry::AppI
 								bgfx::setVertexBuffer(0, &tvb);
 								bgfx::setIndexBuffer(&tib);
 								bgfx::setState(0
-										| BGFX_STATE_RGB_WRITE
+										| BGFX_STATE_WRITE_RGB
 										| BGFX_STATE_PT_LINES
 										| BGFX_STATE_BLEND_ALPHA
 										);
@@ -658,8 +671,8 @@ class ExampleDeferred : public entry::AppI
 						bgfx::setTexture(0, s_normal, bgfx::getTexture(m_gbuffer, 1) );
 						bgfx::setTexture(1, s_depth,  bgfx::getTexture(m_gbuffer, 2) );
 						bgfx::setState(0
-								| BGFX_STATE_RGB_WRITE
-								| BGFX_STATE_ALPHA_WRITE
+								| BGFX_STATE_WRITE_RGB
+								| BGFX_STATE_WRITE_A
 								| BGFX_STATE_BLEND_ADD
 								);
 						screenSpaceQuad( (float)m_width, (float)m_height, s_texelHalf, m_caps->originBottomLeft);
@@ -671,8 +684,8 @@ class ExampleDeferred : public entry::AppI
 				bgfx::setTexture(0, s_albedo, bgfx::getTexture(m_gbuffer,     0) );
 				bgfx::setTexture(1, s_light,  bgfx::getTexture(m_lightBuffer, 0) );
 				bgfx::setState(0
-						| BGFX_STATE_RGB_WRITE
-						| BGFX_STATE_ALPHA_WRITE
+						| BGFX_STATE_WRITE_RGB
+						| BGFX_STATE_WRITE_A
 						);
 				screenSpaceQuad( (float)m_width, (float)m_height, s_texelHalf, m_caps->originBottomLeft);
 				bgfx::submit(RENDER_PASS_COMBINE_ID, m_combineProgram);
@@ -695,11 +708,13 @@ class ExampleDeferred : public entry::AppI
 						bgfx::setVertexBuffer(0, m_vbh);
 						bgfx::setIndexBuffer(m_ibh, 0, 6);
 						bgfx::setTexture(0, s_texColor, m_gbufferTex[ii]);
-						bgfx::setState(BGFX_STATE_RGB_WRITE);
+						bgfx::setState(BGFX_STATE_WRITE_RGB);
 						bgfx::submit(RENDER_PASS_DEBUG_GBUFFER_ID, m_debugProgram);
 					}
 				}
 			}
+
+			imguiEndFrame();
 
 			// Advance to next frame. Rendering thread will be kicked to
 			// process submitted rendering primitives.
@@ -759,4 +774,6 @@ class ExampleDeferred : public entry::AppI
 	int64_t m_timeOffset;
 };
 
-ENTRY_IMPLEMENT_MAIN(ExampleDeferred);
+} // namespace
+
+ENTRY_IMPLEMENT_MAIN(ExampleDeferred, "21-deferred", "MRT rendering and deferred shading.");

@@ -1,10 +1,14 @@
 /*
- * Copyright 2011-2017 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2018 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 #include "common.h"
 #include "bgfx_utils.h"
+#include "imgui/imgui.h"
+
+namespace
+{
 
 struct PosColorVertex
 {
@@ -71,61 +75,138 @@ static const uint16_t s_cubeTriStrip[] =
 	5,
 };
 
+static const uint16_t s_cubeLineList[] =
+{
+	0, 1,
+	0, 2,
+	0, 4,
+	1, 3,
+	1, 5,
+	2, 3,
+	2, 6,
+	3, 7,
+	4, 5,
+	4, 6,
+	5, 7,
+	6, 7,
+};
+
+static const uint16_t s_cubePoints[] =
+{
+	0, 1, 2, 3, 4, 5, 6, 7
+};
+
+static const char* s_ptNames[]
+{
+	"Triangle List",
+	"Triangle Strip",
+	"Lines",
+	"Points",
+};
+
+static const uint64_t s_ptState[]
+{
+	BGFX_STATE_PT_TRISTRIP,
+	UINT64_C(0),
+	BGFX_STATE_PT_LINES,
+	BGFX_STATE_PT_POINTS,
+};
+
 class ExampleCubes : public entry::AppI
 {
-	void init(int _argc, char** _argv) BX_OVERRIDE
+public:
+	ExampleCubes(const char* _name, const char* _description)
+		: entry::AppI(_name, _description)
+		, m_pt(0)
+		, m_r(true)
+		, m_g(true)
+		, m_b(true)
+		, m_a(true)
 	{
-		BX_UNUSED(s_cubeTriList, s_cubeTriStrip);
+	}
 
+	void init(int32_t _argc, const char* const* _argv, uint32_t _width, uint32_t _height) override
+	{
 		Args args(_argc, _argv);
 
-		m_width  = 1280;
-		m_height = 720;
-		m_debug  = BGFX_DEBUG_TEXT;
+		m_width  = _width;
+		m_height = _height;
+		m_debug  = BGFX_DEBUG_NONE;
 		m_reset  = BGFX_RESET_VSYNC;
 
-		bgfx::init(args.m_type, args.m_pciId);
-		bgfx::reset(m_width, m_height, m_reset);
+		bgfx::Init init;
+		init.type     = args.m_type;
+		init.vendorId = args.m_pciId;
+		init.resolution.width  = m_width;
+		init.resolution.height = m_height;
+		init.resolution.reset  = m_reset;
+		bgfx::init(init);
 
 		// Enable debug text.
 		bgfx::setDebug(m_debug);
 
 		// Set view 0 clear state.
 		bgfx::setViewClear(0
-				, BGFX_CLEAR_COLOR|BGFX_CLEAR_DEPTH
-				, 0x303030ff
-				, 1.0f
-				, 0
-				);
+			, BGFX_CLEAR_COLOR|BGFX_CLEAR_DEPTH
+			, 0x303030ff
+			, 1.0f
+			, 0
+			);
 
 		// Create vertex stream declaration.
 		PosColorVertex::init();
 
 		// Create static vertex buffer.
 		m_vbh = bgfx::createVertexBuffer(
-				// Static data can be passed with bgfx::makeRef
-				bgfx::makeRef(s_cubeVertices, sizeof(s_cubeVertices) )
-				, PosColorVertex::ms_decl
-				);
+			// Static data can be passed with bgfx::makeRef
+			  bgfx::makeRef(s_cubeVertices, sizeof(s_cubeVertices) )
+			, PosColorVertex::ms_decl
+			);
 
-		// Create static index buffer.
-		m_ibh = bgfx::createIndexBuffer(
-				// Static data can be passed with bgfx::makeRef
-				bgfx::makeRef(s_cubeTriStrip, sizeof(s_cubeTriStrip) )
-				);
+		// Create static index buffer for triangle strip rendering.
+		m_ibh[0] = bgfx::createIndexBuffer(
+			// Static data can be passed with bgfx::makeRef
+			bgfx::makeRef(s_cubeTriStrip, sizeof(s_cubeTriStrip) )
+			);
+
+		// Create static index buffer for triangle list rendering.
+		m_ibh[1] = bgfx::createIndexBuffer(
+			// Static data can be passed with bgfx::makeRef
+			bgfx::makeRef(s_cubeTriList, sizeof(s_cubeTriList) )
+			);
+
+		// Create static index buffer for triangle list rendering.
+		m_ibh[2] = bgfx::createIndexBuffer(
+			// Static data can be passed with bgfx::makeRef
+			bgfx::makeRef(s_cubeLineList, sizeof(s_cubeLineList) )
+			);
+
+		// Create static index buffer for triangle list rendering.
+		m_ibh[3] = bgfx::createIndexBuffer(
+			// Static data can be passed with bgfx::makeRef
+			bgfx::makeRef(s_cubePoints, sizeof(s_cubePoints) )
+			);
 
 		// Create program from shaders.
 		m_program = loadProgram("vs_cubes", "fs_cubes");
 
 		m_timeOffset = bx::getHPCounter();
+
+		imguiCreate();
 	}
 
-	virtual int shutdown() BX_OVERRIDE
+	virtual int shutdown() override
 	{
+		imguiDestroy();
+
 		// Cleanup.
-		bgfx::destroyIndexBuffer(m_ibh);
-		bgfx::destroyVertexBuffer(m_vbh);
-		bgfx::destroyProgram(m_program);
+		for (uint32_t ii = 0; ii < BX_COUNTOF(m_ibh); ++ii)
+		{
+			bgfx::destroy(m_ibh[ii]);
+		}
+
+		bgfx::destroy(m_vbh);
+		bgfx::destroy(m_program);
 
 		// Shutdown bgfx.
 		bgfx::shutdown();
@@ -133,24 +214,48 @@ class ExampleCubes : public entry::AppI
 		return 0;
 	}
 
-	bool update() BX_OVERRIDE
+	bool update() override
 	{
-		if (!entry::processEvents(m_width, m_height, m_debug, m_reset) )
+		if (!entry::processEvents(m_width, m_height, m_debug, m_reset, &m_mouseState) )
 		{
-			int64_t now = bx::getHPCounter();
-			static int64_t last = now;
-			const int64_t frameTime = now - last;
-			last = now;
-			const double freq = double(bx::getHPFrequency() );
-			const double toMs = 1000.0/freq;
+			imguiBeginFrame(m_mouseState.m_mx
+				,  m_mouseState.m_my
+				, (m_mouseState.m_buttons[entry::MouseButton::Left  ] ? IMGUI_MBUT_LEFT   : 0)
+				| (m_mouseState.m_buttons[entry::MouseButton::Right ] ? IMGUI_MBUT_RIGHT  : 0)
+				| (m_mouseState.m_buttons[entry::MouseButton::Middle] ? IMGUI_MBUT_MIDDLE : 0)
+				,  m_mouseState.m_mz
+				, uint16_t(m_width)
+				, uint16_t(m_height)
+				);
 
-			float time = (float)( (now-m_timeOffset)/double(bx::getHPFrequency() ) );
+			showExampleDialog(this);
 
-			// Use debug font to print information about this example.
-			bgfx::dbgTextClear();
-			bgfx::dbgTextPrintf(0, 1, 0x4f, "bgfx/examples/01-cube");
-			bgfx::dbgTextPrintf(0, 2, 0x6f, "Description: Rendering simple static mesh.");
-			bgfx::dbgTextPrintf(0, 3, 0x0f, "Frame: % 7.3f[ms]", double(frameTime)*toMs);
+			ImGui::SetNextWindowPos(
+				  ImVec2(m_width - m_width / 5.0f - 10.0f, 10.0f)
+				, ImGuiCond_FirstUseEver
+				);
+			ImGui::SetNextWindowSize(
+				  ImVec2(m_width / 5.0f, m_height / 3.5f)
+				, ImGuiCond_FirstUseEver
+				);
+			ImGui::Begin("Settings"
+				, NULL
+				, 0
+				);
+
+			ImGui::Checkbox("Write R", &m_r);
+			ImGui::Checkbox("Write G", &m_g);
+			ImGui::Checkbox("Write B", &m_b);
+			ImGui::Checkbox("Write A", &m_a);
+
+			ImGui::Text("Primitive topology:");
+			ImGui::Combo("", (int*)&m_pt, s_ptNames, BX_COUNTOF(s_ptNames) );
+
+			ImGui::End();
+
+			imguiEndFrame();
+
+			float time = (float)( (bx::getHPCounter()-m_timeOffset)/double(bx::getHPFrequency() ) );
 
 			float at[3]  = { 0.0f, 0.0f,   0.0f };
 			float eye[3] = { 0.0f, 0.0f, -35.0f };
@@ -186,6 +291,19 @@ class ExampleCubes : public entry::AppI
 			// if no other draw calls are submitted to view 0.
 			bgfx::touch(0);
 
+			bgfx::IndexBufferHandle ibh = m_ibh[m_pt];
+			uint64_t state = 0
+				| (m_r ? BGFX_STATE_WRITE_R : 0)
+				| (m_g ? BGFX_STATE_WRITE_G : 0)
+				| (m_b ? BGFX_STATE_WRITE_B : 0)
+				| (m_a ? BGFX_STATE_WRITE_A : 0)
+				| BGFX_STATE_WRITE_Z
+				| BGFX_STATE_DEPTH_TEST_LESS
+				| BGFX_STATE_CULL_CW
+				| BGFX_STATE_MSAA
+				| s_ptState[m_pt]
+				;
+
 			// Submit 11x11 cubes.
 			for (uint32_t yy = 0; yy < 11; ++yy)
 			{
@@ -202,13 +320,10 @@ class ExampleCubes : public entry::AppI
 
 					// Set vertex and index buffer.
 					bgfx::setVertexBuffer(0, m_vbh);
-					bgfx::setIndexBuffer(m_ibh);
+					bgfx::setIndexBuffer(ibh);
 
 					// Set render states.
-					bgfx::setState(0
-						| BGFX_STATE_DEFAULT
-						| BGFX_STATE_PT_TRISTRIP
-						);
+					bgfx::setState(state);
 
 					// Submit primitive for rendering to view 0.
 					bgfx::submit(0, m_program);
@@ -225,14 +340,24 @@ class ExampleCubes : public entry::AppI
 		return false;
 	}
 
+	entry::MouseState m_mouseState;
+
 	uint32_t m_width;
 	uint32_t m_height;
 	uint32_t m_debug;
 	uint32_t m_reset;
 	bgfx::VertexBufferHandle m_vbh;
-	bgfx::IndexBufferHandle m_ibh;
+	bgfx::IndexBufferHandle m_ibh[4];
 	bgfx::ProgramHandle m_program;
 	int64_t m_timeOffset;
+	int32_t m_pt;
+
+	bool m_r;
+	bool m_g;
+	bool m_b;
+	bool m_a;
 };
 
-ENTRY_IMPLEMENT_MAIN(ExampleCubes);
+} // namespace
+
+ENTRY_IMPLEMENT_MAIN(ExampleCubes, "01-cubes", "Rendering simple static mesh.");
