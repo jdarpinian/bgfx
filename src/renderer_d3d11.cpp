@@ -672,11 +672,11 @@ namespace bgfx { namespace d3d11
 	public:
 		VRImplOpenVRD3D11();
 
-		virtual bool createSwapChain(const VRDesc& _desc, int _msaaSamples, int _mirrorWidth, int _mirrorHeight) BX_OVERRIDE;
-		virtual void destroySwapChain() BX_OVERRIDE;
-		virtual void destroyMirror() BX_OVERRIDE;
-		virtual void makeRenderTargetActive(const VRDesc& _desc) BX_OVERRIDE;
-		virtual bool submitSwapChain(const VRDesc& _desc) BX_OVERRIDE;
+		virtual bool createSwapChain(const VRDesc& _desc, int _msaaSamples, int _mirrorWidth, int _mirrorHeight) override;
+		virtual void destroySwapChain() override;
+		virtual void destroyMirror() override;
+		virtual void makeRenderTargetActive(const VRDesc& _desc) override;
+		virtual bool submitSwapChain(const VRDesc& _desc) override;
 
 	private:
 		ID3D11DepthStencilView* m_depthBuffer;
@@ -3843,7 +3843,7 @@ namespace bgfx { namespace d3d11
 		ID3D11Device* device = s_renderD3D11->m_device;
 		
 		const int32_t width = _desc.m_eyeSize[0].m_w + _desc.m_eyeSize[1].m_w;
-		const int32_t height = bx::uint16_max(_desc.m_eyeSize[0].m_h, _desc.m_eyeSize[1].m_h);
+		const int32_t height = bx::max<uint32_t>(_desc.m_eyeSize[0].m_h, _desc.m_eyeSize[1].m_h);
 
 		if (NULL == m_cbTexture)
 		{
@@ -3914,12 +3914,12 @@ namespace bgfx { namespace d3d11
 		{
 			const vr::VRTextureBounds_t bounds = { 0.f, 0.f, .5f, 1.f };
 			vr::EVRCompositorError error(m_compositor->Submit(vr::Eye_Left, &texdesc, &bounds));
-			BX_CHECK(vr:VRCompositorError_None == error, "OpenVR left eye submission failed!");
+			BX_CHECK(vr::VRCompositorError_None == error || vr::VRCompositorError_DoNotHaveFocus == error, "OpenVR left eye submission failed!");
 		}
 		{
 			const vr::VRTextureBounds_t bounds = { .5f, 0.f, 1.f, 1.f };
 			vr::EVRCompositorError error(m_compositor->Submit(vr::Eye_Right, &texdesc, &bounds));
-			BX_CHECK(vr:VRCompositorError_None == error, "OpenVR right eye submission failed!");
+			BX_CHECK(vr::VRCompositorError_None == error || vr::VRCompositorError_DoNotHaveFocus == error, "OpenVR right eye submission failed!");
 		}
 
 		/*

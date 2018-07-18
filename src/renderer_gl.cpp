@@ -5,6 +5,8 @@
 
 #include "bgfx_p.h"
 
+#undef BGFX_CONFIG_USE_OPENVR
+
 #if (BGFX_CONFIG_RENDERER_OPENGLES || BGFX_CONFIG_RENDERER_OPENGL)
 #	include "renderer_gl.h"
 #	include <bx/timer.h>
@@ -1718,11 +1720,11 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 	public:
 		VRImplOpenVRGL();
 
-		virtual bool createSwapChain(const VRDesc& _desc, int _msaaSamples, int _mirrorWidth, int _mirrorHeight) BX_OVERRIDE;
-		virtual void destroySwapChain() BX_OVERRIDE;
-		virtual void destroyMirror() BX_OVERRIDE;
-		virtual void makeRenderTargetActive(const VRDesc& _desc) BX_OVERRIDE;
-		virtual bool submitSwapChain(const VRDesc& _desc) BX_OVERRIDE;
+		virtual bool createSwapChain(const VRDesc& _desc, int _msaaSamples, int _mirrorWidth, int _mirrorHeight) override;
+		virtual void destroySwapChain() override;
+		virtual void destroyMirror() override;
+		virtual void makeRenderTargetActive(const VRDesc& _desc) override;
+		virtual bool submitSwapChain(const VRDesc& _desc) override;
 
 	private:
 		GLuint m_eyeTarget[4];
@@ -1732,9 +1734,6 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 		GLuint m_mirrorFbo;
 		GLint m_mirrorWidth;
 		GLint m_mirrorHeight;
-
-		ovrTextureSwapChain m_textureSwapChain;
-		ovrMirrorTexture m_mirrorTexture;
 	};
 #endif // BGFX_CONFIG_USE_OPENVR
 
@@ -4300,8 +4299,6 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 		: m_depthRbo(0)
 		, m_msaaTexture(0)
 		, m_msaaTarget(0)
-		, m_textureSwapChain(NULL)
-		, m_mirrorTexture(NULL)
 	{
 		bx::memSet(&m_eyeTarget, 0, sizeof(m_eyeTarget) );
 	}
@@ -4324,7 +4321,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 		if (NULL == m_cbTexture)
 		{
 			const GLsizei width = _desc.m_eyeSize[0].m_w + _desc.m_eyeSize[1].m_w;
-			const GLsizei height = bx::uint16_max(_desc.m_eyeSize[0].m_h, _desc.m_eyeSize[1].m_h);
+			const GLsizei height = bx::max<uint32_t>(_desc.m_eyeSize[0].m_h, _desc.m_eyeSize[1].m_h);
 
 			// create depth buffer
 			GL_CHECK(glGenRenderbuffers(1, &m_depthRbo));
@@ -4340,8 +4337,8 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 			GL_CHECK(glBindRenderbuffer(GL_RENDERBUFFER, 0));
 
 			// create eye target
-			GL_CHECK(glGenFramebuffers(1, &m_eyeTarget) );
-			GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, m_eyeTarget) );
+			GL_CHECK(glGenFramebuffers(1, &m_eyeTarget[0]) );
+			GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, m_eyeTarget[0]) );
 			GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0) );
 			if (2 > _msaaSamples && 0 != m_depthRbo)
 			{

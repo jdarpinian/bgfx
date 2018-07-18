@@ -207,6 +207,10 @@ namespace bgfx
 		return true;
 	}
 
+	void VRImplOpenVR::updateInput(HMD& _hmd)
+	{
+	}
+
 	void VRImplOpenVR::recenter()
 	{
 		if (NULL != m_system)
